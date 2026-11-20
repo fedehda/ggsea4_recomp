@@ -1,0 +1,40 @@
+# Copyrighted game files & extracted assets
+input/
+recomp_output/
+analysis/asm/
+analysis/obj/
+analysis/mgso/
+*.iso
+*.gcm
+*.dol
+*.rel
+*.bnr
+*.thp
+*.dsp
+
+# Screenshots, textures & raw media
+*.bmp
+*.png
+*.yuv
+*.raw
+scratch/textures/
+
+# Build artifacts & third-party binaries
+module_build/build/
+tools/llvm-mingw-*/
+tools/dtk.exe
+**/__pycache__/
+*.pyc
+*.exe
+*.dll
+*.o
+*.a
+
+# Logs & temporary outputs
+*.log
+output_*.txt
+err.txt
+out.txt
+"New Text Document.txt"
+scratch/*.log
+scratch/tev_keys_dump.txt

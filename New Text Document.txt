@@ -1,0 +1,22 @@
+@echo off
+title Metal Gear Solid: The Twin Snakes (GC Recomp)
+setlocal
+
+:: Cambiar al directorio raiz del proyecto para resolver dependencias y rutas relativas
+cd /d "D:\Documents\VSCode\gc-recomp-workspace"
+
+:: Ruta al ejecutable del runtime grafico
+set "RUNTIME_EXE=module_build\build\ggsea4_gfx_runtime.exe"
+
+if not exist "%RUNTIME_EXE%" (
+    echo [ERROR] No se encontro el ejecutable en: %RUNTIME_EXE%
+    pause
+    exit /b 1
+)
+
+:: Es crucial usar 'start "" /wait' para que el script no se cierre inmediatamente;
+:: de lo contrario, Steam creera que el juego finalizo y desactivara Steam Input y el overlay.
+start "" /wait "%RUNTIME_EXE%" %*
+
+endlocal
+exit /b %ERRORLEVEL%

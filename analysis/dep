@@ -1,0 +1,7 @@
+analysis/config.json: \
+  /Documents/VSCode/gc-recomp-workspace/input/extracted/sys/main.dol \
+  splits.txt \
+  symbols.txt \
+  /Documents/VSCode/gc-recomp-workspace/input/extracted/files/shared/mgso.rel \
+  mgso_splits.txt \
+  mgso_symbols.txt

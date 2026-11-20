@@ -1,0 +1,53 @@
+# Reglas Persistentes del Proyecto: GameCube Static Recompilation (dtk + DolRecomp + RecompCore)
+
+## 0. Eficiencia de Tokens y Guía Visual por el Usuario
+- **Autolimitación estricta de consumo de tokens:** Respuestas directas, concisas y sin vueltas innecesarias.
+- **Validación visual por el usuario:** El usuario evalúa directamente los avances visuales (capturas de frames, EFB, BMPs) para acelerar el desarrollo.
+- **Acción directa:** Diagnosticar la causa raíz puntual, aplicar la corrección, compilar y verificar el frame clave.
+
+## 1. Arquitectura y Especificaciones PowerPC 750CL (Gekko)
+- **Endianness:** Big-Endian en origen (GameCube) -> Little-Endian en destino (x86_64 / ARM64). Todo acceso a memoria emulada requiere byte-swapping.
+- **Convención de Registros (Metrowerks / SysV PPC ABI):**
+  - `r1`: Stack Pointer (SP), alineado a 8 bytes.
+  - `r2`: `_SDA2_BASE_` (`.sdata2` / `.sbss2` - solo lectura/constantes).
+  - `r13`: `_SDA_BASE_` (`.sdata` / `.sbss` - lectura/escritura rápida).
+  - `r3` - `r10`: Argumentos enteros; retorno en `r3` (y `r4` para 64-bit).
+  - `f1` - `f8`: Argumentos de punto flotante; retorno en `f1`.
+  - `LR` / `CTR`: Saltos indirectos (`bctr`, `bctrl`, `blr`, `blrl`).
+- **Paired Singles (`ps_*`):** Extensión SIMD de 2x32-bit float en registros FPR de 64-bit controlada por `GQR0`-`GQR7`.
+
+## 2. Mapa de Memoria Base GameCube (Splash / Arena)
+- `0x80000000 - 0x800030FF`: OS Globals, `BI2`, tabla de vectores de interrupción y configuración física/virtual.
+- `0x80003100+`: Inicio estándar de `main.dol` (`.init`, `.text`, `extab`, `extabindex`, `.ctors`, `.dtors`, `.rodata`, `.data`, `.bss`, `.sdata`, `.sbss`, `.sdata2`, `.sbss2`).
+
+## 3. Comandos Verificados de `dtk` (v1.8.4) y `DolRecomp` (`ExpansionPak/DolRecomp`)
+- **Ruta local de `dtk`:** `tools/dtk.exe`
+- **Extracción de disco:** `tools/dtk.exe disc extract input/game.iso input/extracted`
+- **Información del DOL:** `tools/dtk.exe dol info input/extracted/sys/main.dol`
+- **Generación de configuración inicial:** `tools/dtk.exe dol config -o analysis/config.yml input/extracted/sys/main.dol`
+- **Análisis de flujo y split:** `tools/dtk.exe dol split analysis/config.yml analysis/`
+- **Puente de símbolos (`symbols.txt` -> `game.map`):** `python tools/convert_symbols.py --symbols analysis/symbols.txt --splits analysis/splits.txt --output analysis/game.map`
+- **Repositorios Upstream Reales (`ExpansionPak`):**
+  - `DolRecomp`: `https://github.com/ExpansionPak/DolRecomp.git` (ejecutable: `tools/DolRecomp/build/dolrecomp.exe`)
+  - `ModernGekko-Template`: `https://github.com/ExpansionPak/ModernGekko-Template.git`
+  - `RecompCore`: `https://github.com/ExpansionPak/RecompCore.git`
+- **Invocación verificada de `DolRecomp` (GameCube C backend + `.map`):**
+  - `tools/DolRecomp/build/dolrecomp.exe --gamecube --map analysis/game.map input/extracted/sys/main.dol recomp_output/src`
+  - Con ID de título explícito (6 caracteres): `tools/DolRecomp/build/dolrecomp.exe --map analysis/game.map input/extracted/sys/main.dol <GAME_ID> recomp_output/src`
+
+## 4. Metadatos y Offsets Descubiertos del Juego (`input/game.iso`)
+- **Título:** `METAL GEAR SOLID THE TWIN SNAKES`
+- **Game ID:** `GGSEA4` (Game Code: `GGSE`, Maker Code: `A4` - Konami)
+- **Disc Revision:** `0x00` (Disc 1, Rev 0)
+- **Compilador Detectado (Metrowerks CodeWarrior):** `MWCC GC 2.0 / 2.3` (`Dolphin SDK 0x2301`, builds Apr–Aug 2003)
+- **Entry Point (`__start`):** `0x80005240` (`main` en `0x80006958`)
+- **`_SDA_BASE_` (`r13`):** `0x80285DC0`
+- **`_SDA2_BASE_` (`r2`):** `0x802864A0`
+- **Stack / Arena:** `_stack_end = 0x8027EB38`, `_stack_addr = 0x8028EB38`, `__ArenaLo = 0x80290B40`, `__ArenaHi = 0x81700000`
+- **Módulos `.rel` / `.rso`:** `files/shared/mgso.rel` (SHA-1: `239b8426c412b7c58490ccc6e4b7c0c6d78a0340`, `.text` 4.54 MB)
+- **Hashes SHA-1 (`dtk`):** `main.dol` = `4864afb5eacc8dd11ad98dbf14f79053767d7a6d`
+
+## 5. Flags Críticos de Compilación (`module_build`)
+- Estándar: `C++20`
+- Flags obligatorios (Clang/GCC): `-O3 -march=native -fno-strict-aliasing`
+  - Nota: `-fno-strict-aliasing` es indispensable debido al type-punning constante entre registros GPR/FPR y punteros en el código C/C++ generado.

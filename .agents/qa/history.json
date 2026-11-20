@@ -1,0 +1,89 @@
+[
+  {
+    "timestamp": "2026-10-20T12:30:00Z",
+    "report": ".agents/qa/reports/report-20261020-123000.md",
+    "target": "ggsea4_gfx_runtime.exe",
+    "status": "PASSED",
+    "frames_verified": 300,
+    "qol_features": [
+      "Aspect Ratio 4:3 / 16:9 / Stretch",
+      "Borderless Fullscreen (F11 / Alt+Enter)",
+      "High Precision Frame Pacing & VSync (60 FPS)",
+      "XInput Rumble & Dual Memory Pad Sync"
+    ]
+  },
+  {
+    "timestamp": "2026-10-20T14:05:00Z",
+    "report": ".agents/qa/reports/report-20261020-140500.md",
+    "target": "ggsea4_gfx_runtime.exe",
+    "status": "PASSED",
+    "frames_verified": 300,
+    "qol_features": [
+      "Virtual EFB Framebuffer Object (640x480 RGBA8 + Depth24)",
+      "Double-buffered EFB Snapshot Presentation",
+      "YUY2 Luma Detection Fix (ITU-R BT.601)",
+      "Tactical Diagnostic HUD (F1 Toggle)"
+    ]
+  },
+  {
+    "timestamp": "2026-10-23T19:40:00Z",
+    "report": ".agents/qa/reports/report-20261023-194000.md",
+    "target": "ggsea4_gfx_runtime.exe",
+    "status": "PASSED",
+    "frames_verified": 600,
+    "qol_features": [
+      "GameCube XF Matrix Transformations (Perspective & Orthographic)",
+      "Dynamic Pipeline State (ZMode BP 0x40, BlendMode BP 0x41, AlphaCompare BP 0xF3)",
+      "Texture Upload Endianness Fix (GL_UNSIGNED_INT_8_8_8_8)",
+      "Verified Display of Konami Logo & Graphics Output (640x480)",
+      "F12 Instant EFB BMP Screenshot Capture"
+    ]
+  },
+  {
+    "timestamp": "2026-10-23T20:50:00Z",
+    "report": ".agents/qa/reports/report-20261023-205000.md",
+    "target": "ggsea4_gfx_runtime.exe",
+    "status": "PASSED",
+    "frames_verified": 2000,
+    "qol_features": [
+      "Virtual Memory Card 251 backed by persistent storage memcardA.raw (2MB)",
+      "GameCube Header, Directory 1 & 2, and BAT 1 & 2 with authentic checksums",
+      "HLE CARD & EXI subsystem intercepts (Probe, Mount, Check, Read, Write, Format)",
+      "Strict START enforcement on Enter key (VK_RETURN = 0x1000u)",
+      "Confirmation mapping: Space & 'Z' for Button A (0x0100u), 'X' & Backspace for Button B (0x0200u)",
+      "Multi-slot XInput polling (slots 0..3) for Steam Input & wireless gamepads",
+      "Continuous VI retrace_count increment for PADRead sync",
+      "CLI turbo and novsync modes for fast-forward testing"
+    ]
+  },
+  {
+    "timestamp": "2026-11-17T21:30:00Z",
+    "report": ".agents/qa/reports/report-20261117-213000.md",
+    "target": "ggsea4_gfx_runtime.exe",
+    "status": "PASSED",
+    "frames_verified": 2600,
+    "qol_features": [
+      "GPU Codec Background Capture via CaptureDisplayToEfbTexture at DCInvalidateRange (0x8004C928 / 0x8004C9B4)",
+      "Eliminated solid green (0,128,0) bottom bar & (R=0,G,B) YCbCr conversion corruption in Codec background",
+      "Safe loop breakout guard at 0x7F0FEAC4 -> 0x7F0FEB54 preventing post-Codec hang into area01a",
+      "ModernGekko O(1) FIFO head offset (m_buffer_head), GxDecodedDraw scratch reuse & kInvPow2 LUT",
+      "Verbose log gating & FBO/XFB fast paths boosting 3D intro from ~17 FPS to 70.6-72.8 FPS (turbo)"
+    ]
+  },
+  {
+    "timestamp": "2026-11-17T22:05:00Z",
+    "report": ".agents/qa/reports/report-20261117-220500.md",
+    "target": "ggsea4_gfx_runtime.exe + GGSEA4.dll + ModernGekko",
+    "status": "ISSUES_FOUND",
+    "frames_verified": 2200,
+    "summary": "Multi-agent /qa-orchestrator audit: 7 critical, 9 high, 4 medium findings across Snake missing/uncontrollable in area01a, fast Codec timing, and 20 FPS non-turbo VSync pacing."
+  },
+  {
+    "timestamp": "2026-11-20T01:20:00-03:00",
+    "report": ".agents/qa/reports/report-20261120-012000.md",
+    "target": "ggsea4_gfx_runtime.exe",
+    "status": "PASSED",
+    "frames_verified": 2800,
+    "summary": "Phase 1 completion verified (Tests 1-3): BuildGpuVertexBatch VCD/VAT sanitization fixed r_title y=147/480 Z-clip cutoff and area01a top HUD/radar stability (f=2200..2700); registering 0x7F0185C0u and 0x80054EC8u in kHookedAddrs plus AudioChild_StoppingAct voice retirement eliminated all [STREAM-CLEANUP-TIMEOUT] stalls and reached frame 2800 across Codec #1 and #2 with 0 OSPanic/RING-GUARD/CODEC-STALL/no-memory errors."
+  }
+]

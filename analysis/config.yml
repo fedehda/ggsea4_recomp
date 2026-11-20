@@ -1,0 +1,9 @@
+object: input/extracted/sys/main.dol
+hash: 4864afb5eacc8dd11ad98dbf14f79053767d7a6d
+symbols: analysis/symbols.txt
+splits: analysis/splits.txt
+modules:
+- object: input/extracted/files/shared/mgso.rel
+  hash: 239b8426c412b7c58490ccc6e4b7c0c6d78a0340
+  symbols: analysis/mgso_symbols.txt
+  splits: analysis/mgso_splits.txt

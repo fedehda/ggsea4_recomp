@@ -1,0 +1,333 @@
+#!/usr/bin/env python3
+"""
+Puente de Símbolos: decomp-toolkit (dtk) -> DolRecomp / Dolphin Emulator (.map)
+
+Parsea `analysis/symbols.txt` (y opcionalmente `analysis/splits.txt`) generado por `dtk`:
+    fn_80003100 = .init:0x80003100; // type:function size:0x154
+y genera `analysis/game.map` compatible tanto con Dolphin Emulator como con DolRecomp.
+Además identifica patrones conocidos del runtime de Metrowerks CodeWarrior y SDK de Nintendo.
+"""
+
+from __future__ import annotations
+
+import argparse
+import re
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
+
+
+# Expresión regular para líneas de symbols.txt de dtk:
+# Ejemplo 1: __start = .init:0x80003100; // type:function size:0x154
+# Ejemplo 2: OS_GLOBALS = 0x80000000; // type:object size:0x3100
+SYMBOL_RE = re.compile(
+    r"^\s*(?P<name>[^\s=]+)\s*=\s*(?:(?P<section>\.[a-zA-Z0-9_]+|extab(?:index)?):)?0x(?P<addr>[0-9a-fA-F]+)\s*;\s*(?://\s*(?P<attrs>.*))?$"
+)
+
+# Expresión regular para secciones en splits.txt de dtk:
+# Ejemplo: .text       type:code align:32 start:0x80003254 end:0x80241A00
+SPLIT_SECTION_RE = re.compile(
+    r"^\s*(?P<section>\.[a-zA-Z0-9_]+|extab(?:index)?)\s+.*?\bstart:0x(?P<start>[0-9a-fA-F]+)\s+end:0x(?P<end>[0-9a-fA-F]+)"
+)
+
+ATTR_RE = re.compile(r"(?P<key>[a-zA-Z0-9_]+):(?P<val>[^\s]+)")
+
+
+@dataclass
+class SymbolEntry:
+    name: str
+    section: str
+    address: int
+    size: int
+    sym_type: str
+    scope: str = "global"
+    unit: str = "main.dol"
+
+
+@dataclass
+class SectionBounds:
+    name: str
+    start: int
+    end: int
+
+    @property
+    def size(self) -> int:
+        return max(0, self.end - self.start)
+
+
+def parse_splits(splits_path: Path) -> Dict[str, SectionBounds]:
+    sections: Dict[str, SectionBounds] = {}
+    if not splits_path.exists():
+        return sections
+
+    for raw_line in splits_path.read_text(encoding="utf-8", errors="replace").splitlines():
+        match = SPLIT_SECTION_RE.match(raw_line)
+        if match:
+            sec_name = match.group("section")
+            start = int(match.group("start"), 16)
+            end = int(match.group("end"), 16)
+            sections[sec_name] = SectionBounds(name=sec_name, start=start, end=end)
+    return sections
+
+
+def parse_symbols(
+    symbols_path: Path, section_bases: Optional[Dict[str, int]] = None
+) -> List[SymbolEntry]:
+    if not symbols_path.exists():
+        raise FileNotFoundError(f"No se encontró el archivo de símbolos: {symbols_path}")
+
+    entries: List[SymbolEntry] = []
+    for line_num, raw_line in enumerate(
+        symbols_path.read_text(encoding="utf-8", errors="replace").splitlines(), start=1
+    ):
+        line = raw_line.strip()
+        if not line or line.startswith("#") or line.startswith("//"):
+            continue
+
+        match = SYMBOL_RE.match(line)
+        if not match:
+            continue
+
+        name = match.group("name")
+        section = match.group("section") or ".text"
+        address = int(match.group("addr"), 16)
+        if section_bases and section in section_bases:
+            address += section_bases[section]
+        attrs_raw = match.group("attrs") or ""
+
+        attrs: Dict[str, str] = {}
+        for attr_match in ATTR_RE.finditer(attrs_raw):
+            attrs[attr_match.group("key")] = attr_match.group("val")
+
+        size_str = attrs.get("size", "0x4")
+        try:
+            size = int(size_str, 16) if size_str.startswith("0x") else int(size_str)
+        except ValueError:
+            size = 4
+
+        sym_type = attrs.get("type", "function" if section in (".init", ".text") else "object")
+        scope = attrs.get("scope", "global")
+
+        entries.append(
+            SymbolEntry(
+                name=name,
+                section=section,
+                address=address,
+                size=size,
+                sym_type=sym_type,
+                scope=scope,
+            )
+        )
+
+    entries.sort(key=lambda s: (s.address, s.name))
+    return entries
+
+
+def write_map_file(
+    entries: List[SymbolEntry],
+    sections: Dict[str, SectionBounds],
+    output_path: Path,
+    functions_only: bool = False,
+) -> Tuple[int, int]:
+    """
+    Escribe un archivo .map compatible con Dolphin Emulator y DolRecomp.
+    Formato de cada fila dentro de `<section> section layout`:
+      <section_offset_hex> <size_hex> <virtual_addr_hex> <align> <symbol_name> \t<object_unit>
+    """
+    by_section: Dict[str, List[SymbolEntry]] = {}
+    total_functions = 0
+    total_written = 0
+
+    for entry in entries:
+        if entry.sym_type == "function":
+            total_functions += 1
+        if functions_only and entry.sym_type != "function":
+            continue
+        by_section.setdefault(entry.section, []).append(entry)
+        total_written += 1
+
+    # Orden canónico de secciones DOL de GameCube
+    section_order = [
+        ".init",
+        "extab",
+        "extabindex",
+        ".text",
+        ".ctors",
+        ".dtors",
+        ".rodata",
+        ".data",
+        ".bss",
+        ".sdata",
+        ".sbss",
+        ".sdata2",
+        ".sbss2",
+    ]
+    for sec in by_section:
+        if sec not in section_order:
+            section_order.append(sec)
+
+    lines: List[str] = []
+    for sec in section_order:
+        sec_entries = by_section.get(sec, [])
+        if not sec_entries:
+            continue
+
+        sec_bounds: Optional[SectionBounds] = sections.get(sec)
+        sec_base = sec_bounds.start if sec_bounds else sec_entries[0].address
+
+        lines.append(f"{sec} section layout")
+        lines.append("  Starting        Virtual")
+        lines.append("  address  Size   address")
+        lines.append("  -----------------------")
+
+        for sym in sec_entries:
+            rel_offset = max(0, sym.address - sec_base)
+            align = 4 if sym.sym_type == "function" else 1
+            lines.append(
+                f"  {rel_offset:08x} {sym.size:06x} {sym.address:08x} {align:2d} {sym.name} \t{sym.unit}"
+            )
+        lines.append("")
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text("\n".join(lines), encoding="utf-8")
+    return total_functions, total_written
+
+
+def summarize_sdk_and_runtime(entries: List[SymbolEntry]) -> Dict[str, List[SymbolEntry]]:
+    """Clasifica símbolos detectados del SDK de Nintendo y Runtime de Metrowerks."""
+    categories: Dict[str, List[SymbolEntry]] = {
+        "metrowerks_runtime": [],
+        "dolphin_os_sdk": [],
+        "game_functions": [],
+    }
+
+    mw_prefixes = (
+        "__start",
+        "__init_",
+        "_savegpr_",
+        "_restgpr_",
+        "_savefpr_",
+        "_restfpr_",
+        "__div2",
+        "__mod2",
+        "__shl2",
+        "__shr2",
+        "__cvt_",
+        "__fill_mem",
+        "__copy_longs",
+        "memcpy",
+        "memset",
+        "memmove",
+    )
+    sdk_prefixes = (
+        "OS",
+        "DVD",
+        "VI",
+        "GX",
+        "PAD",
+        "AI",
+        "AX",
+        "DSP",
+        "AR",
+        "ARQ",
+        "CARD",
+        "EXI",
+        "SI",
+        "MTX",
+        "C_MTX",
+        "PSMTX",
+        "VEC",
+        "PSVEC",
+        "TRK",
+    )
+
+    for sym in entries:
+        if sym.sym_type != "function":
+            continue
+        if sym.name.startswith(mw_prefixes):
+            categories["metrowerks_runtime"].append(sym)
+        elif sym.name.startswith(sdk_prefixes):
+            categories["dolphin_os_sdk"].append(sym)
+        else:
+            categories["game_functions"].append(sym)
+
+    return categories
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Convierte analysis/symbols.txt de dtk a analysis/game.map para DolRecomp y Dolphin."
+    )
+    parser.add_argument(
+        "--symbols",
+        type=Path,
+        default=Path("analysis/symbols.txt"),
+        help="Ruta al archivo symbols.txt generado por dtk (default: analysis/symbols.txt)",
+    )
+    parser.add_argument(
+        "--splits",
+        type=Path,
+        default=Path("analysis/splits.txt"),
+        help="Ruta al archivo splits.txt generado por dtk (default: analysis/splits.txt)",
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=Path("analysis/game.map"),
+        help="Ruta de salida para el archivo .map (default: analysis/game.map)",
+    )
+    parser.add_argument(
+        "--functions-only",
+        action="store_true",
+        help="Exportar únicamente símbolos de tipo función (type:function)",
+    )
+    parser.add_argument(
+        "--section-bases",
+        type=str,
+        default="",
+        help="Bases por sección separadas por coma, ej: .text=0x7F0080EC,.rodata=0x7F45CA50",
+    )
+
+    args = parser.parse_args()
+
+    section_bases: Dict[str, int] = {}
+    if args.section_bases:
+        for item in args.section_bases.split(","):
+            if "=" in item:
+                k, v = item.split("=", 1)
+                section_bases[k.strip()] = int(v.strip(), 16)
+
+    try:
+        sections = parse_splits(args.splits)
+        entries = parse_symbols(args.symbols, section_bases=section_bases)
+    except FileNotFoundError as exc:
+        print(f"[ERROR] {exc}", file=sys.stderr)
+        return 1
+
+    total_funcs, total_written = write_map_file(
+        entries=entries,
+        sections=sections,
+        output_path=args.output,
+        functions_only=args.functions_only,
+    )
+    categories = summarize_sdk_and_runtime(entries)
+
+    print(f"[OK] Mapa generado exitosamente en: {args.output}")
+    print(f"     Total simbolos procesados : {len(entries)}")
+    print(f"     Total simbolos exportados : {total_written}")
+    print(f"     Total funciones (.init/.text): {total_funcs}")
+    print(
+        f"     |- Runtime Metrowerks     : {len(categories['metrowerks_runtime'])}"
+    )
+    print(
+        f"     |- Nintendo Dolphin SDK   : {len(categories['dolphin_os_sdk'])}"
+    )
+    print(
+        f"     +- Logica del Juego / Auto: {len(categories['game_functions'])}"
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
