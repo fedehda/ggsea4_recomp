@@ -114,6 +114,15 @@ typedef void*(APIENTRY* PFNGLMAPBUFFERRANGEPROC)(GLenum target, GLintptr offset,
 typedef GLsync(APIENTRY* PFNGLFENCESYNCPROC)(GLenum condition, GLbitfield flags);
 typedef GLenum(APIENTRY* PFNGLCLIENTWAITSYNCPROC)(GLsync sync, GLbitfield flags, uint64_t timeout);
 typedef void(APIENTRY* PFNGLDELETESYNCPROC)(GLsync sync);
+typedef void(APIENTRY* PFNGLGENVERTEXARRAYSPROC)(GLsizei n, GLuint* arrays);
+typedef void(APIENTRY* PFNGLBINDVERTEXARRAYPROC)(GLuint array);
+typedef void(APIENTRY* PFNGLDELETEVERTEXARRAYSPROC)(GLsizei n, const GLuint* arrays);
+typedef HGLRC(APIENTRY* PFNWGLCREATECONTEXTATTRIBSARBPROC)(HDC hDC, HGLRC hShareContext, const int* attribList);
+typedef void(APIENTRY* PFNGLTEXIMAGE3DPROC)(GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height, GLsizei depth, GLint border, GLenum format, GLenum type, const void* pixels);
+typedef void(APIENTRY* PFNGLTEXSUBIMAGE3DPROC)(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint zoffset, GLsizei width, GLsizei height, GLsizei depth, GLenum format, GLenum type, const void* pixels);
+typedef void(APIENTRY* PFNGLFRAMEBUFFERTEXTURELAYERPROC)(GLenum target, GLenum attachment, GLuint texture, GLint level, GLint layer);
+typedef void(APIENTRY* PFNGLBINDBUFFERBASEPROC)(GLenum target, GLuint index, GLuint buffer);
+typedef void(APIENTRY* PFNGLVERTEXATTRIBIPOINTERPROC)(GLuint index, GLint size, GLenum type, GLsizei stride, const void* pointer);
 typedef BOOL(APIENTRY* PFNWGLSWAPINTERVALEXTPROC)(int interval);
 static PFNWGLSWAPINTERVALEXTPROC wglSwapIntervalEXT = nullptr;
 
@@ -207,6 +216,48 @@ typedef void(APIENTRY* PFNGLBLITFRAMEBUFFERPROC)(GLint srcX0, GLint srcY0, GLint
 #endif
 #ifndef GL_UNSIGNED_INT_8_8_8_8
 #define GL_UNSIGNED_INT_8_8_8_8 0x8035
+#endif
+#ifndef GL_TEXTURE_2D_ARRAY
+#define GL_TEXTURE_2D_ARRAY 0x8C1A
+#endif
+#ifndef GL_TEXTURE_BINDING_2D_ARRAY
+#define GL_TEXTURE_BINDING_2D_ARRAY 0x8C1D
+#endif
+#ifndef GL_TEXTURE_SWIZZLE_RGBA
+#define GL_TEXTURE_SWIZZLE_RGBA 0x8E46
+#endif
+#ifndef GL_UNIFORM_BUFFER
+#define GL_UNIFORM_BUFFER 0x8A11
+#endif
+#ifndef GL_DEPTH_CLAMP
+#define GL_DEPTH_CLAMP 0x864F
+#endif
+#ifndef GL_CLIP_DISTANCE0
+#define GL_CLIP_DISTANCE0 0x3000
+#endif
+#ifndef GL_CLIP_DISTANCE1
+#define GL_CLIP_DISTANCE1 0x3001
+#endif
+#ifndef GL_PROGRAM_POINT_SIZE
+#define GL_PROGRAM_POINT_SIZE 0x8642
+#endif
+#ifndef GL_SRC1_ALPHA
+#define GL_SRC1_ALPHA 0x8589
+#endif
+#ifndef GL_ONE_MINUS_SRC1_ALPHA
+#define GL_ONE_MINUS_SRC1_ALPHA 0x88FB
+#endif
+#ifndef GL_FRAMEBUFFER_BINDING
+#define GL_FRAMEBUFFER_BINDING 0x8CA6
+#endif
+#ifndef GL_TEXTURE_MAX_LEVEL
+#define GL_TEXTURE_MAX_LEVEL 0x813D
+#endif
+#ifndef GL_INFO_LOG_LENGTH
+#define GL_INFO_LOG_LENGTH 0x8B84
+#endif
+#ifndef GL_DYNAMIC_DRAW
+#define GL_DYNAMIC_DRAW 0x88E8
 #endif
 #endif
 
@@ -410,7 +461,14 @@ public:
     }
 
     ~Ggsea4RenderDevice() override {
+        ShutdownGlResources();
+    }
+
+    void ShutdownGlResources() {
 #if defined(_WIN32)
+        if (wglGetCurrentContext() == nullptr) {
+            return;
+        }
         FlushPendingBatch();
         for (auto& [k, entry] : m_efb_textures) {
             if (entry.gl_tex) glDeleteTextures(1, &entry.gl_tex);
@@ -424,6 +482,26 @@ public:
             if (prog.program && m_glDeleteProgram) m_glDeleteProgram(prog.program);
         }
         m_tev_programs.clear();
+        for (auto& [k, prog] : m_dolphin_prog_cache) {
+            if (prog && m_glDeleteProgram) m_glDeleteProgram(prog);
+        }
+        m_dolphin_prog_cache.clear();
+        for (auto& [k, vs] : m_dolphin_vs_cache) {
+            if (vs && m_glDeleteShader) m_glDeleteShader(vs);
+        }
+        m_dolphin_vs_cache.clear();
+        for (auto& [k, ps] : m_dolphin_ps_cache) {
+            if (ps && m_glDeleteShader) m_glDeleteShader(ps);
+        }
+        m_dolphin_ps_cache.clear();
+        if (m_present_prog && m_glDeleteProgram) {
+            m_glDeleteProgram(m_present_prog);
+            m_present_prog = 0;
+        }
+        if (m_hud_prog && m_glDeleteProgram) {
+            m_glDeleteProgram(m_hud_prog);
+            m_hud_prog = 0;
+        }
         if (m_dummy_white_tex) {
             glDeleteTextures(1, &m_dummy_white_tex);
             m_dummy_white_tex = 0;
@@ -437,6 +515,26 @@ public:
                 m_glDeleteSync(m_ebo_fences[q]);
                 m_ebo_fences[q] = nullptr;
             }
+            if (m_dolphin_vbo_fences[q] && m_glDeleteSync) {
+                m_glDeleteSync(m_dolphin_vbo_fences[q]);
+                m_dolphin_vbo_fences[q] = nullptr;
+            }
+        }
+        if (m_dolphin_vbo && m_glDeleteBuffers) {
+            m_glDeleteBuffers(1, &m_dolphin_vbo);
+            m_dolphin_vbo = 0;
+        }
+        if (m_vs_ubo && m_glDeleteBuffers) {
+            m_glDeleteBuffers(1, &m_vs_ubo);
+            m_vs_ubo = 0;
+        }
+        if (m_ps_ubo && m_glDeleteBuffers) {
+            m_glDeleteBuffers(1, &m_ps_ubo);
+            m_ps_ubo = 0;
+        }
+        if (m_hud_vbo && m_glDeleteBuffers) {
+            m_glDeleteBuffers(1, &m_hud_vbo);
+            m_hud_vbo = 0;
         }
         if (m_vbo && m_glDeleteBuffers) {
             m_glDeleteBuffers(1, &m_vbo);
@@ -445,6 +543,22 @@ public:
         if (m_ebo && m_glDeleteBuffers) {
             m_glDeleteBuffers(1, &m_ebo);
             m_ebo = 0;
+        }
+        if (m_dolphin_vao && m_glDeleteVertexArrays) {
+            m_glDeleteVertexArrays(1, &m_dolphin_vao);
+            m_dolphin_vao = 0;
+        }
+        if (m_present_vao && m_glDeleteVertexArrays) {
+            m_glDeleteVertexArrays(1, &m_present_vao);
+            m_present_vao = 0;
+        }
+        if (m_hud_vao && m_glDeleteVertexArrays) {
+            m_glDeleteVertexArrays(1, &m_hud_vao);
+            m_hud_vao = 0;
+        }
+        if (m_vao && m_glDeleteVertexArrays) {
+            m_glDeleteVertexArrays(1, &m_vao);
+            m_vao = 0;
         }
         if (m_vs_handle && m_glDeleteShader) {
             m_glDeleteShader(m_vs_handle);
@@ -478,7 +592,136 @@ public:
             glDeleteTextures(1, &m_xfb_tex);
             m_xfb_tex = 0;
         }
+        m_zero_draw_xfb_streak = 0u;
+        m_vs_ubo_valid = false;
+        m_ps_ubo_valid = false;
+        m_d_vs_ubo_valid = false;
+        m_d_ps_ubo_valid = false;
+        m_d_pstate_valid = false;
+        m_d_prog_valid = false;
+        m_d_texmask_valid = false;
+        m_d_texres_valid = false;
 #endif
+    }
+
+    GLuint CompileRawGlShader(GLenum type, const char* src, const char* label) {
+        if (!m_glCreateShader || !m_glShaderSource || !m_glCompileShader || !m_glGetShaderiv) return 0;
+        GLuint sh = m_glCreateShader(type);
+        if (!sh) return 0;
+        m_glShaderSource(sh, 1, &src, nullptr);
+        m_glCompileShader(sh);
+        GLint ok = 0;
+        m_glGetShaderiv(sh, GL_COMPILE_STATUS, &ok);
+        if (!ok) {
+            char log[1024] = {};
+            if (m_glGetShaderInfoLog) m_glGetShaderInfoLog(sh, sizeof(log) - 1, nullptr, log);
+            std::fprintf(stderr, "[GFX-CORE-SHADER-ERR] %s: %s\n", label, log);
+            if (m_glDeleteShader) m_glDeleteShader(sh);
+            return 0;
+        }
+        return sh;
+    }
+
+    void InitCorePresentShaders() {
+        if (!m_glCreateProgram || !m_glAttachShader || !m_glLinkProgram || !m_glGetProgramiv) return;
+
+        static const char* kPresentVs =
+            "#version 450 core\n"
+            "uniform int u_flip_y;\n"
+            "out vec2 v_uv;\n"
+            "void main() {\n"
+            "    vec2 pos = vec2((gl_VertexID == 1) ? 3.0 : -1.0, (gl_VertexID == 2) ? 3.0 : -1.0);\n"
+            "    vec2 uv_raw = pos * 0.5 + 0.5;\n"
+            "    v_uv = vec2(uv_raw.x, (u_flip_y != 0) ? (1.0 - uv_raw.y) : uv_raw.y);\n"
+            "    gl_Position = vec4(pos, 0.0, 1.0);\n"
+            "}\n";
+        static const char* kPresentFs =
+            "#version 450 core\n"
+            "in vec2 v_uv;\n"
+            "uniform sampler2D u_tex;\n"
+            "out vec4 o_color;\n"
+            "void main() {\n"
+            "    o_color = texture(u_tex, v_uv);\n"
+            "}\n";
+        GLuint pvs = CompileRawGlShader(GL_VERTEX_SHADER, kPresentVs, "PresentVS");
+        GLuint pfs = CompileRawGlShader(GL_FRAGMENT_SHADER, kPresentFs, "PresentFS");
+        if (pvs && pfs) {
+            GLuint prog = m_glCreateProgram();
+            m_glAttachShader(prog, pvs);
+            m_glAttachShader(prog, pfs);
+            m_glLinkProgram(prog);
+            GLint ok = 0;
+            m_glGetProgramiv(prog, GL_LINK_STATUS, &ok);
+            if (ok) {
+                m_present_prog = prog;
+                if (m_glUseProgram && m_glGetUniformLocation && m_glUniform1i) {
+                    m_glUseProgram(m_present_prog);
+                    GLint tex_loc = m_glGetUniformLocation(m_present_prog, "u_tex");
+                    if (tex_loc >= 0) m_glUniform1i(tex_loc, 0);
+                    m_present_flip_loc = m_glGetUniformLocation(m_present_prog, "u_flip_y");
+                    m_glUseProgram(0);
+                }
+            } else {
+                char log[1024] = {};
+                if (m_glGetProgramInfoLog) m_glGetProgramInfoLog(prog, sizeof(log) - 1, nullptr, log);
+                std::fprintf(stderr, "[GFX-CORE-LINK-ERR] PresentProg: %s\n", log);
+                if (m_glDeleteProgram) m_glDeleteProgram(prog);
+            }
+        }
+        if (pvs && m_glDeleteShader) m_glDeleteShader(pvs);
+        if (pfs && m_glDeleteShader) m_glDeleteShader(pfs);
+
+        static const char* kHudVs =
+            "#version 450 core\n"
+            "layout(location = 0) in vec2 a_pos;\n"
+            "void main() {\n"
+            "    gl_Position = vec4(a_pos, 0.0, 1.0);\n"
+            "}\n";
+        static const char* kHudFs =
+            "#version 450 core\n"
+            "uniform vec4 u_color;\n"
+            "out vec4 o_color;\n"
+            "void main() {\n"
+            "    o_color = u_color;\n"
+            "}\n";
+        GLuint hvs = CompileRawGlShader(GL_VERTEX_SHADER, kHudVs, "HudVS");
+        GLuint hfs = CompileRawGlShader(GL_FRAGMENT_SHADER, kHudFs, "HudFS");
+        if (hvs && hfs) {
+            GLuint prog = m_glCreateProgram();
+            m_glAttachShader(prog, hvs);
+            m_glAttachShader(prog, hfs);
+            m_glLinkProgram(prog);
+            GLint ok = 0;
+            m_glGetProgramiv(prog, GL_LINK_STATUS, &ok);
+            if (ok) {
+                m_hud_prog = prog;
+                if (m_glGetUniformLocation) {
+                    m_hud_color_loc = m_glGetUniformLocation(m_hud_prog, "u_color");
+                }
+            } else {
+                char log[1024] = {};
+                if (m_glGetProgramInfoLog) m_glGetProgramInfoLog(prog, sizeof(log) - 1, nullptr, log);
+                std::fprintf(stderr, "[GFX-CORE-LINK-ERR] HudProg: %s\n", log);
+                if (m_glDeleteProgram) m_glDeleteProgram(prog);
+            }
+        }
+        if (hvs && m_glDeleteShader) m_glDeleteShader(hvs);
+        if (hfs && m_glDeleteShader) m_glDeleteShader(hfs);
+
+        if (m_glGenVertexArrays && m_glBindVertexArray) {
+            m_glGenVertexArrays(1, &m_present_vao);
+            m_glGenVertexArrays(1, &m_hud_vao);
+            if (m_glGenBuffers && m_glBindBuffer && m_glBufferData && m_glEnableVertexAttribArray && m_glVertexAttribPointer) {
+                m_glGenBuffers(1, &m_hud_vbo);
+                m_glBindVertexArray(m_hud_vao);
+                m_glBindBuffer(GL_ARRAY_BUFFER, m_hud_vbo);
+                m_glBufferData(GL_ARRAY_BUFFER, 4096, nullptr, GL_DYNAMIC_DRAW);
+                m_glEnableVertexAttribArray(0);
+                m_glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(float) * 2, nullptr);
+                m_glBindBuffer(GL_ARRAY_BUFFER, 0);
+            }
+            m_glBindVertexArray(m_vao);
+        }
     }
 
     void InitGlResources() {
@@ -490,15 +733,6 @@ public:
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, DISP_WIDTH, DISP_HEIGHT, 0, GL_RGBA, GL_UNSIGNED_BYTE, m_xfb_rgba.data());
-
-        const std::uint32_t white_px = 0xFFFFFFFFu;
-        glGenTextures(1, &m_dummy_white_tex);
-        glBindTexture(GL_TEXTURE_2D, m_dummy_white_tex);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, &white_px);
 
         auto load_proc = [](const char* name, const char* alt_name = nullptr) -> void* {
             void* p = reinterpret_cast<void*>(wglGetProcAddress(name));
@@ -544,6 +778,32 @@ public:
         m_glFenceSync = reinterpret_cast<PFNGLFENCESYNCPROC>(load_proc("glFenceSync"));
         m_glClientWaitSync = reinterpret_cast<PFNGLCLIENTWAITSYNCPROC>(load_proc("glClientWaitSync"));
         m_glDeleteSync = reinterpret_cast<PFNGLDELETESYNCPROC>(load_proc("glDeleteSync"));
+        m_glGenVertexArrays = reinterpret_cast<PFNGLGENVERTEXARRAYSPROC>(load_proc("glGenVertexArrays"));
+        m_glBindVertexArray = reinterpret_cast<PFNGLBINDVERTEXARRAYPROC>(load_proc("glBindVertexArray"));
+        m_glDeleteVertexArrays = reinterpret_cast<PFNGLDELETEVERTEXARRAYSPROC>(load_proc("glDeleteVertexArrays"));
+        m_glTexImage3D = reinterpret_cast<PFNGLTEXIMAGE3DPROC>(load_proc("glTexImage3D"));
+        m_glTexSubImage3D = reinterpret_cast<PFNGLTEXSUBIMAGE3DPROC>(load_proc("glTexSubImage3D"));
+        m_glFramebufferTextureLayer = reinterpret_cast<PFNGLFRAMEBUFFERTEXTURELAYERPROC>(load_proc("glFramebufferTextureLayer"));
+        m_glBindBufferBase = reinterpret_cast<PFNGLBINDBUFFERBASEPROC>(load_proc("glBindBufferBase"));
+        m_glVertexAttribIPointer = reinterpret_cast<PFNGLVERTEXATTRIBIPOINTERPROC>(load_proc("glVertexAttribIPointer"));
+        if (m_glGenVertexArrays && m_glBindVertexArray) {
+            m_glGenVertexArrays(1, &m_vao);
+            m_glBindVertexArray(m_vao);
+        }
+
+        const std::uint32_t white_px = 0xFFFFFFFFu;
+        glGenTextures(1, &m_dummy_white_tex);
+        glBindTexture(GL_TEXTURE_2D_ARRAY, m_dummy_white_tex);
+        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAX_LEVEL, 0);
+        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        ApplyGxTextureSwizzle(0);
+        if (m_glTexImage3D) {
+            m_glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_RGBA8, 1, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, &white_px);
+        }
+        glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
 
         m_glGenFramebuffers = reinterpret_cast<PFNGLGENFRAMEBUFFERSPROC>(load_proc("glGenFramebuffers", "glGenFramebuffersEXT"));
         m_glBindFramebuffer = reinterpret_cast<PFNGLBINDFRAMEBUFFERPROC>(load_proc("glBindFramebuffer", "glBindFramebufferEXT"));
@@ -617,6 +877,81 @@ public:
                         static_cast<size_t>(m_vbo_capacity >> 20), static_cast<size_t>(m_ebo_capacity >> 20));
         }
 
+        if (m_glGenBuffers && m_glBindBuffer) {
+            m_glGenBuffers(1, &m_dolphin_vbo);
+            if (m_dolphin_vbo != 0 && (m_glBufferData || can_persist)) {
+                m_dolphin_vbo_cursor = 0;
+                m_glBindBuffer(GL_ARRAY_BUFFER, m_dolphin_vbo);
+                if (can_persist) {
+                    const GLsizeiptr q_bytes = static_cast<GLsizeiptr>(DOLPHIN_VBO_Q_VERTS * sizeof(DolphinGpuVertex));
+                    const GLsizeiptr total_bytes = q_bytes * 4;
+                    const GLbitfield flags = GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT;
+                    m_glBufferStorage(GL_ARRAY_BUFFER, total_bytes, nullptr, flags);
+                    void* ptr = m_glMapBufferRange(GL_ARRAY_BUFFER, 0, total_bytes, flags);
+                    if (ptr) {
+                        m_dolphin_vbo_mapped = static_cast<uint8_t*>(ptr);
+                        m_dolphin_vbo_capacity = total_bytes;
+                        m_dolphin_vbo_max_verts = DOLPHIN_VBO_Q_VERTS * 4;
+                    }
+                }
+                if (!m_dolphin_vbo_mapped && m_glBufferData) {
+                    m_dolphin_vbo_capacity = 16 * 1024 * 1024;
+                    m_glBufferData(GL_ARRAY_BUFFER, m_dolphin_vbo_capacity, nullptr, GL_STREAM_DRAW);
+                }
+                m_glBindBuffer(GL_ARRAY_BUFFER, 0);
+            }
+
+            if (m_glGenVertexArrays && m_glBindVertexArray && m_dolphin_vbo != 0 &&
+                m_glEnableVertexAttribArray && m_glVertexAttribPointer) {
+                m_glGenVertexArrays(1, &m_dolphin_vao);
+                m_glBindVertexArray(m_dolphin_vao);
+                m_glBindBuffer(GL_ARRAY_BUFFER, m_dolphin_vbo);
+                if (m_ebo != 0) {
+                    m_glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_ebo);
+                }
+                constexpr GLsizei d_stride = static_cast<GLsizei>(sizeof(DolphinGpuVertex));
+                m_glEnableVertexAttribArray(0);
+                m_glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, d_stride, reinterpret_cast<const void*>(offsetof(DolphinGpuVertex, pos)));
+                if (m_glVertexAttribIPointer) {
+                    m_glEnableVertexAttribArray(1);
+                    m_glVertexAttribIPointer(1, 1, GL_UNSIGNED_INT, d_stride, reinterpret_cast<const void*>(offsetof(DolphinGpuVertex, posmtx)));
+                }
+                m_glEnableVertexAttribArray(2);
+                m_glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, d_stride, reinterpret_cast<const void*>(offsetof(DolphinGpuVertex, nrm)));
+                m_glEnableVertexAttribArray(3);
+                m_glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, d_stride, reinterpret_cast<const void*>(offsetof(DolphinGpuVertex, tan)));
+                m_glEnableVertexAttribArray(4);
+                m_glVertexAttribPointer(4, 3, GL_FLOAT, GL_FALSE, d_stride, reinterpret_cast<const void*>(offsetof(DolphinGpuVertex, binrm)));
+                m_glEnableVertexAttribArray(5);
+                m_glVertexAttribPointer(5, 4, GL_UNSIGNED_BYTE, GL_TRUE, d_stride, reinterpret_cast<const void*>(offsetof(DolphinGpuVertex, col0)));
+                m_glEnableVertexAttribArray(6);
+                m_glVertexAttribPointer(6, 4, GL_UNSIGNED_BYTE, GL_TRUE, d_stride, reinterpret_cast<const void*>(offsetof(DolphinGpuVertex, col1)));
+                for (GLuint tc = 0; tc < 8u; ++tc) {
+                    m_glEnableVertexAttribArray(8u + tc);
+                    m_glVertexAttribPointer(8u + tc, 3, GL_FLOAT, GL_FALSE, d_stride,
+                                            reinterpret_cast<const void*>(offsetof(DolphinGpuVertex, uv) + tc * sizeof(float) * 3u));
+                }
+                m_glBindBuffer(GL_ARRAY_BUFFER, 0);
+                m_glBindVertexArray(m_vao);
+            }
+
+            if (m_glBufferData && m_glBindBufferBase) {
+                m_glGenBuffers(1, &m_vs_ubo);
+                m_glBindBuffer(GL_UNIFORM_BUFFER, m_vs_ubo);
+                m_vs_ubo_cap = 16384;
+                m_glBufferData(GL_UNIFORM_BUFFER, m_vs_ubo_cap, nullptr, GL_DYNAMIC_DRAW);
+                m_glGenBuffers(1, &m_ps_ubo);
+                m_glBindBuffer(GL_UNIFORM_BUFFER, m_ps_ubo);
+                m_ps_ubo_cap = 16384;
+                m_glBufferData(GL_UNIFORM_BUFFER, m_ps_ubo_cap, nullptr, GL_DYNAMIC_DRAW);
+                m_glBindBuffer(GL_UNIFORM_BUFFER, 0);
+                m_glBindBufferBase(GL_UNIFORM_BUFFER, 2, m_vs_ubo);
+                m_glBindBufferBase(GL_UNIFORM_BUFFER, 1, m_ps_ubo);
+            }
+        }
+
+        glEnable(GL_PROGRAM_POINT_SIZE);
+        InitCorePresentShaders();
         InitSharedVertexShader();
         WarmupTevShaderCache();
 
@@ -675,8 +1010,894 @@ public:
         } else {
             std::fprintf(stderr, "[GL-FBO] Extensiones FBO no disponibles en el driver OpenGL.\n");
         }
+        for (int ei = 0; ei < 16; ++ei) {
+            GLenum err = glGetError();
+            if (err == GL_NO_ERROR) break;
+            std::fprintf(stderr, "[GFX-GL-ERR] InitGlResources: 0x%X\n", static_cast<unsigned>(err));
+        }
 #endif
     }
+
+#if defined(_WIN32)
+    static constexpr const char* kDolphinGlslHeader =
+        "#version 450 core\n"
+        "#define FORCE_EARLY_Z layout(early_fragment_tests) in\n"
+        "#define ATTRIBUTE_LOCATION(x) layout(location = x)\n"
+        "#define FRAGMENT_OUTPUT_LOCATION(x) layout(location = x)\n"
+        "#define FRAGMENT_OUTPUT_LOCATION_INDEXED(x, y) layout(location = x, index = y)\n"
+        "#define UBO_BINDING(packing, x) layout(packing, binding = x)\n"
+        "#define SAMPLER_BINDING(x) layout(binding = x)\n"
+        "#define TEXEL_BUFFER_BINDING(x) layout(binding = x)\n"
+        "#define SSBO_BINDING(x) layout(std430, binding = x)\n"
+        "#define IMAGE_BINDING(format, x) layout(format, binding = x)\n"
+        "#define VARYING_LOCATION(x)\n"
+        "#define API_OPENGL 1\n"
+        "#define float2 vec2\n"
+        "#define float3 vec3\n"
+        "#define float4 vec4\n"
+        "#define uint2 uvec2\n"
+        "#define uint3 uvec3\n"
+        "#define uint4 uvec4\n"
+        "#define int2 ivec2\n"
+        "#define int3 ivec3\n"
+        "#define int4 ivec4\n"
+        "#define frac fract\n"
+        "#define lerp mix\n";
+
+    GLuint CompileDolphinGlShader(GLenum type, const std::string& body, uint64_t uid) {
+        if (!m_glCreateShader || !m_glShaderSource || !m_glCompileShader || !m_glGetShaderiv) return 0;
+        const GLuint sh = m_glCreateShader(type);
+        if (!sh) return 0;
+        const char* srcs[2] = {kDolphinGlslHeader, body.c_str()};
+        const GLint lens[2] = {
+            static_cast<GLint>(std::strlen(kDolphinGlslHeader)),
+            static_cast<GLint>(body.size())
+        };
+        m_glShaderSource(sh, 2, srcs, lens);
+        m_glCompileShader(sh);
+        GLint ok = 0;
+        m_glGetShaderiv(sh, GL_COMPILE_STATUS, &ok);
+        if (!ok) {
+            ++m_dolphin_shader_errors;
+            if (m_dolphin_shader_errors <= 5u) {
+                char log[2048] = {};
+                if (m_glGetShaderInfoLog) m_glGetShaderInfoLog(sh, sizeof(log) - 1, nullptr, log);
+                std::fprintf(stderr, "[DOLPHIN-SHADER-ERR] %s uid=0x%llX compile failed:\n%s\n",
+                             (type == GL_VERTEX_SHADER) ? "VS" : "PS",
+                             static_cast<unsigned long long>(uid), log);
+            }
+            if (m_glDeleteShader) m_glDeleteShader(sh);
+            return 0;
+        }
+        return sh;
+    }
+
+    GLuint GetOrCompileDolphinProgram(const moderngekko::GxStateView& state,
+                                      moderngekko::GxTopology topology,
+                                      uint8_t vat,
+                                      const moderngekko::DolphinShaderCapabilities& caps,
+                                      const moderngekko::DolphinShaderOptions& opts) {
+        const auto uids = moderngekko::DolphinShaderCompiler::ComputeUids(
+            state, topology, vat, moderngekko::DolphinShaderApi::OpenGl, caps, opts);
+        const DolphinProgramKey key{uids.vertex_uid, uids.pixel_uid};
+        if (auto it = m_dolphin_prog_cache.find(key); it != m_dolphin_prog_cache.end()) {
+            return it->second;
+        }
+
+        GLuint vs = 0;
+        if (auto vit = m_dolphin_vs_cache.find(uids.vertex_uid); vit != m_dolphin_vs_cache.end()) {
+            vs = vit->second;
+        } else {
+            const std::string vs_src = moderngekko::DolphinShaderCompiler::CompileVertexShader(
+                state, vat, moderngekko::DolphinShaderApi::OpenGl, caps, opts);
+            vs = CompileDolphinGlShader(GL_VERTEX_SHADER, vs_src, uids.vertex_uid);
+            m_dolphin_vs_cache.emplace(uids.vertex_uid, vs);
+        }
+
+        GLuint ps = 0;
+        if (auto pit = m_dolphin_ps_cache.find(uids.pixel_uid); pit != m_dolphin_ps_cache.end()) {
+            ps = pit->second;
+        } else {
+            const std::string ps_src = moderngekko::DolphinShaderCompiler::CompilePixelShader(
+                state, vat, moderngekko::DolphinShaderApi::OpenGl, caps, opts);
+            ps = CompileDolphinGlShader(GL_FRAGMENT_SHADER, ps_src, uids.pixel_uid);
+            m_dolphin_ps_cache.emplace(uids.pixel_uid, ps);
+        }
+
+        if (!vs || !ps || !m_glCreateProgram || !m_glAttachShader || !m_glLinkProgram || !m_glGetProgramiv) {
+            m_dolphin_prog_cache.emplace(key, 0u);
+            return 0;
+        }
+
+        const GLuint prog = m_glCreateProgram();
+        m_glAttachShader(prog, vs);
+        m_glAttachShader(prog, ps);
+        m_glLinkProgram(prog);
+        GLint ok = 0;
+        m_glGetProgramiv(prog, GL_LINK_STATUS, &ok);
+        if (!ok) {
+            ++m_dolphin_shader_errors;
+            if (m_dolphin_shader_errors <= 5u) {
+                char log[2048] = {};
+                if (m_glGetProgramInfoLog) m_glGetProgramInfoLog(prog, sizeof(log) - 1, nullptr, log);
+                std::fprintf(stderr, "[DOLPHIN-SHADER-ERR] Link failed (vs=0x%llX ps=0x%llX):\n%s\n",
+                             static_cast<unsigned long long>(uids.vertex_uid),
+                             static_cast<unsigned long long>(uids.pixel_uid), log);
+            }
+            if (m_glDeleteProgram) m_glDeleteProgram(prog);
+            m_dolphin_prog_cache.emplace(key, 0u);
+            return 0;
+        }
+        ++m_shader_compile_count;
+        m_dolphin_prog_cache.emplace(key, prog);
+        return prog;
+    }
+
+    void ComputeViewportAndScissor(const moderngekko::GxStateView& state,
+                                   float* out_wd_half, float* out_ht_half,
+                                   float* out_zrange, float* out_farz,
+                                   GLint* out_vp_x, GLint* out_vp_y, GLsizei* out_vp_w, GLsizei* out_vp_h,
+                                   double* out_depth_n, double* out_depth_f,
+                                   bool* out_sc_enabled, int* out_sc_x, int* out_sc_y, int* out_sc_w, int* out_sc_h) {
+        const float* xf_floats = reinterpret_cast<const float*>(state.xf.data());
+        const uint32_t sc_off = state.bp[0x59u];
+        const int x_off = (sc_off != 0u) ? static_cast<int>((sc_off & 0x1FFu) << 1) : 342;
+        const int y_off = (sc_off != 0u) ? static_cast<int>(((sc_off >> 10) & 0x1FFu) << 1) : 342;
+        float vp_wd_half = m_cached_vp_wd_half;
+        float vp_ht_half = m_cached_vp_ht_half;
+        float vp_zrange  = m_cached_vp_zrange;
+        float vp_farz    = m_cached_vp_farz;
+        GLint new_vp_x = m_cached_vp_gl_x;
+        GLint new_vp_y = m_cached_vp_gl_y;
+        GLsizei new_vp_w = m_cached_vp_gl_w;
+        GLsizei new_vp_h = m_cached_vp_gl_h;
+        double new_depth_n = m_cached_depth_n;
+        double new_depth_f = m_cached_depth_f;
+        if (!(m_vp_cache_valid && state.xf.size() >= 0x1020u &&
+              std::memcmp(m_cached_xf_vp, &state.xf[0x101Au], 24) == 0 &&
+              m_cached_vp_sc_off == sc_off &&
+              m_cached_vp_disp_w == m_last_disp_w && m_cached_vp_disp_h == m_last_disp_h)) {
+            vp_wd_half = (state.xf.size() >= 0x1020u) ? xf_floats[0x101Au] : 320.0f;
+            vp_ht_half = (state.xf.size() >= 0x1020u) ? xf_floats[0x101Bu] : -240.0f;
+            vp_zrange  = (state.xf.size() >= 0x1020u) ? xf_floats[0x101Cu] : 16777215.0f;
+            float vp_xorig = (state.xf.size() >= 0x1020u) ? (xf_floats[0x101Du] - static_cast<float>(x_off)) : 320.0f;
+            float vp_yorig = (state.xf.size() >= 0x1020u) ? (xf_floats[0x101Eu] - static_cast<float>(y_off)) : 240.0f;
+            vp_farz    = (state.xf.size() >= 0x1020u) ? xf_floats[0x101Fu] : 16777215.0f;
+
+            const bool vp_is_valid = std::isfinite(vp_wd_half) && std::isfinite(vp_ht_half) &&
+                                     std::isfinite(vp_xorig) && std::isfinite(vp_yorig) &&
+                                     std::fabs(vp_wd_half) >= 0.5f && std::fabs(vp_wd_half) <= 2048.0f &&
+                                     std::fabs(vp_ht_half) >= 0.5f && std::fabs(vp_ht_half) <= 2048.0f &&
+                                     vp_xorig >= -2048.0f && vp_xorig <= 2048.0f &&
+                                     vp_yorig >= -2048.0f && vp_yorig <= 2048.0f;
+
+            if (!vp_is_valid) {
+                const float target_w = (m_last_disp_w > 0 && m_last_disp_w <= EFB_WIDTH) ? static_cast<float>(m_last_disp_w) : 512.0f;
+                const float target_h = (m_last_disp_h > 0 && m_last_disp_h <= EFB_HEIGHT) ? static_cast<float>(m_last_disp_h) : 448.0f;
+                vp_wd_half = target_w * 0.5f;
+                vp_ht_half = -target_h * 0.5f;
+                vp_xorig   = vp_wd_half;
+                vp_yorig   = target_h * 0.5f;
+                vp_zrange  = 16777215.0f;
+                vp_farz    = 16777215.0f;
+
+                static int s_invalid_vp_logged = 0;
+                if (++s_invalid_vp_logged <= 20) {
+                    std::printf("[XF-VIEWPORT-REPAIR] Draw %llu (frame %u): raw=[wd=%.2f, ht=%.2f, x0=%.2f, y0=%.2f] -> recovered to 0,0 %.0fx%.0f\n",
+                                static_cast<unsigned long long>(m_draw_count), m_current_frame,
+                                xf_floats[0x101Au], xf_floats[0x101Bu], xf_floats[0x101Du], xf_floats[0x101Eu],
+                                target_w, target_h);
+                }
+            }
+
+            const float vp_w_f = std::fabs(vp_wd_half * 2.0f);
+            const float vp_h_f = std::fabs(vp_ht_half * 2.0f);
+            const float efb_vp_left = vp_xorig - std::fabs(vp_wd_half);
+            const float efb_vp_top  = vp_yorig - std::fabs(vp_ht_half);
+
+            new_vp_x = std::clamp<GLint>(static_cast<GLint>(std::lround(efb_vp_left)), -4096, 4096);
+            new_vp_y = std::clamp<GLint>(static_cast<GLint>(std::lround(static_cast<float>(EFB_HEIGHT) - (efb_vp_top + vp_h_f))), -4096, 4096);
+            new_vp_w = std::clamp<GLsizei>(std::max<GLsizei>(1, static_cast<GLsizei>(std::lround(vp_w_f))), 1, 8192);
+            new_vp_h = std::clamp<GLsizei>(std::max<GLsizei>(1, static_cast<GLsizei>(std::lround(vp_h_f))), 1, 8192);
+
+            const bool z_vp_valid = std::isfinite(vp_farz) && std::isfinite(vp_zrange) && (vp_farz != 0.0f || vp_zrange != 0.0f);
+            new_depth_n = z_vp_valid ? std::clamp(static_cast<double>(vp_farz) / 16777216.0, 0.0, 1.0) : 1.0;
+            new_depth_f = z_vp_valid ? std::clamp(static_cast<double>(vp_farz - vp_zrange) / 16777216.0, 0.0, 1.0) : 0.0;
+
+            if (state.xf.size() >= 0x1020u) {
+                std::memcpy(m_cached_xf_vp, &state.xf[0x101Au], 24);
+                m_cached_vp_sc_off = sc_off;
+                m_cached_vp_disp_w = m_last_disp_w;
+                m_cached_vp_disp_h = m_last_disp_h;
+                m_cached_vp_wd_half = vp_wd_half;
+                m_cached_vp_ht_half = vp_ht_half;
+                m_cached_vp_zrange = vp_zrange;
+                m_cached_vp_farz = vp_farz;
+                m_cached_efb_vp_left = efb_vp_left;
+                m_cached_efb_vp_top = efb_vp_top;
+                m_cached_vp_gl_x = new_vp_x;
+                m_cached_vp_gl_y = new_vp_y;
+                m_cached_vp_gl_w = new_vp_w;
+                m_cached_vp_gl_h = new_vp_h;
+                m_cached_depth_n = new_depth_n;
+                m_cached_depth_f = new_depth_f;
+                m_vp_cache_valid = true;
+            }
+        }
+
+        const uint32_t sc_tl = state.bp[0x20u];
+        const uint32_t sc_br = state.bp[0x21u];
+        bool new_sc_enabled = m_cached_want_sc;
+        int new_sc_x = m_cached_sc_x, new_sc_y = m_cached_sc_y, new_sc_w = m_cached_sc_w, new_sc_h = m_cached_sc_h;
+        if (!m_sc_cache_valid || sc_tl != m_cached_sc_tl || sc_br != m_cached_sc_br || sc_off != m_cached_sc_off) {
+            new_sc_enabled = false;
+            new_sc_x = 0; new_sc_y = 0; new_sc_w = 0; new_sc_h = 0;
+            if (sc_br != 0u) {
+                new_sc_enabled = true;
+                const int raw_l = static_cast<int>((sc_tl >> 12) & 0x7FFu);
+                const int raw_t = static_cast<int>(sc_tl & 0x7FFu);
+                const int raw_r = static_cast<int>((sc_br >> 12) & 0x7FFu);
+                const int raw_b = static_cast<int>(sc_br & 0x7FFu);
+                if (raw_l <= raw_r && raw_t <= raw_b) {
+                    const int sc_l = std::clamp(raw_l - x_off, 0, EFB_WIDTH);
+                    const int sc_t = std::clamp(raw_t - y_off, 0, EFB_HEIGHT);
+                    const int sc_r = std::clamp(raw_r + 1 - x_off, 0, EFB_WIDTH);
+                    const int sc_b = std::clamp(raw_b + 1 - y_off, 0, EFB_HEIGHT);
+                    if (sc_r > sc_l && sc_b > sc_t) {
+                        new_sc_x = sc_l;
+                        new_sc_y = EFB_HEIGHT - sc_b;
+                        new_sc_w = sc_r - sc_l;
+                        new_sc_h = sc_b - sc_t;
+                    }
+                }
+            }
+            m_cached_sc_tl = sc_tl;
+            m_cached_sc_br = sc_br;
+            m_cached_sc_off = sc_off;
+            m_cached_want_sc = new_sc_enabled;
+            m_cached_sc_x = new_sc_x;
+            m_cached_sc_y = new_sc_y;
+            m_cached_sc_w = new_sc_w;
+            m_cached_sc_h = new_sc_h;
+            m_sc_cache_valid = true;
+        }
+
+        *out_wd_half = vp_wd_half;
+        *out_ht_half = vp_ht_half;
+        *out_zrange = vp_zrange;
+        *out_farz = vp_farz;
+        *out_vp_x = new_vp_x;
+        *out_vp_y = new_vp_y;
+        *out_vp_w = new_vp_w;
+        *out_vp_h = new_vp_h;
+        *out_depth_n = new_depth_n;
+        *out_depth_f = new_depth_f;
+        *out_sc_enabled = new_sc_enabled;
+        *out_sc_x = new_sc_x;
+        *out_sc_y = new_sc_y;
+        *out_sc_w = new_sc_w;
+        *out_sc_h = new_sc_h;
+    }
+
+    size_t UploadEboIndices(const uint32_t* indices, size_t idx_count) {
+        size_t ebo_start_idx = 0;
+        const GLsizeiptr needed_idx_bytes = static_cast<GLsizeiptr>(idx_count * sizeof(uint32_t));
+        if (m_ebo_mapped && idx_count <= m_ebo_max_idxs) {
+            const size_t q_cur = std::min<size_t>(m_ebo_cursor_idx / EBO_Q_IDXS, 3u);
+            if (m_ebo_cursor_idx + idx_count > m_ebo_max_idxs) {
+                if (m_ebo_fences[q_cur]) m_glDeleteSync(m_ebo_fences[q_cur]);
+                m_ebo_fences[q_cur] = m_glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+                m_ebo_cursor_idx = 0;
+                if (m_ebo_fences[0]) {
+                    m_glClientWaitSync(m_ebo_fences[0], GL_SYNC_FLUSH_COMMANDS_BIT, 1000000000ULL);
+                    m_glDeleteSync(m_ebo_fences[0]);
+                    m_ebo_fences[0] = nullptr;
+                }
+            } else {
+                const size_t q_next = std::min<size_t>((m_ebo_cursor_idx + idx_count - 1u) / EBO_Q_IDXS, 3u);
+                if (q_next != q_cur) {
+                    if (m_ebo_fences[q_cur]) m_glDeleteSync(m_ebo_fences[q_cur]);
+                    m_ebo_fences[q_cur] = m_glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+                    if (m_ebo_fences[q_next]) {
+                        m_glClientWaitSync(m_ebo_fences[q_next], GL_SYNC_FLUSH_COMMANDS_BIT, 1000000000ULL);
+                        m_glDeleteSync(m_ebo_fences[q_next]);
+                        m_ebo_fences[q_next] = nullptr;
+                    }
+                }
+            }
+            ebo_start_idx = m_ebo_cursor_idx;
+            std::memcpy(m_ebo_mapped + ebo_start_idx * sizeof(uint32_t), indices, static_cast<size_t>(needed_idx_bytes));
+            m_ebo_cursor_idx += idx_count;
+        } else if (m_glBufferSubData && m_ebo_capacity > 0) {
+            m_glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_ebo);
+            if (needed_idx_bytes > m_ebo_capacity) {
+                m_ebo_capacity = std::max<GLsizeiptr>(needed_idx_bytes * 2, m_ebo_capacity);
+                m_glBufferData(GL_ELEMENT_ARRAY_BUFFER, m_ebo_capacity, nullptr, GL_STREAM_DRAW);
+                m_ebo_cursor_idx = 0;
+            }
+            const size_t max_ebo_indices = static_cast<size_t>(m_ebo_capacity / sizeof(uint32_t));
+            if (m_ebo_cursor_idx + idx_count > max_ebo_indices) {
+                m_glBufferData(GL_ELEMENT_ARRAY_BUFFER, m_ebo_capacity, nullptr, GL_STREAM_DRAW);
+                m_ebo_cursor_idx = 0;
+            }
+            ebo_start_idx = m_ebo_cursor_idx;
+            m_glBufferSubData(GL_ELEMENT_ARRAY_BUFFER,
+                              static_cast<GLintptr>(ebo_start_idx * sizeof(uint32_t)),
+                              needed_idx_bytes, indices);
+            m_ebo_cursor_idx += idx_count;
+        }
+        return ebo_start_idx;
+    }
+
+    bool SubmitDolphinDraw(const moderngekko::GxDrawPacket& packet,
+                           const moderngekko::GxDecodedDraw& decoded,
+                           const moderngekko::GxStateView& state) {
+        if (m_dolphin_vao == 0 || m_dolphin_vbo == 0 || m_vs_ubo == 0 || m_ps_ubo == 0 ||
+            !m_glUseProgram || !m_glBindBufferBase || !m_glBindVertexArray) {
+            return false;
+        }
+
+        if (m_batch_active) {
+            FlushPendingBatch();
+        }
+
+        const auto caps = moderngekko::DolphinShaderCompiler::DefaultOpenGl45Capabilities();
+        const moderngekko::DolphinShaderOptions opts{};
+        if (!m_d_pstate_valid ||
+            m_d_pstate_bp_gen != state.bp_pipeline_gen ||
+            m_d_pstate_vp_gen != state.xf_vp_gen ||
+            m_d_pstate_topo != decoded.topology) {
+            m_d_pstate_cached = moderngekko::DolphinShaderCompiler::ComputePipelineState(
+                state, decoded.topology, caps);
+            m_d_pstate_bp_gen = state.bp_pipeline_gen;
+            m_d_pstate_vp_gen = state.xf_vp_gen;
+            m_d_pstate_topo = decoded.topology;
+            m_d_pstate_valid = true;
+        }
+        const auto& pstate = m_d_pstate_cached;
+
+        if (pstate.cull_mode == 3u && decoded.topology == moderngekko::GxTopology::Triangles) {
+            return true;
+        }
+
+        const bool use_indexed = (m_ebo != 0 && m_glDrawElementsBaseVertex != nullptr);
+        const size_t idx_count = decoded.indices.size();
+        const size_t vert_count = use_indexed ? decoded.vertices.size() : idx_count;
+        if (vert_count == 0u || idx_count == 0u) {
+            return true;
+        }
+
+        if (!m_d_prog_valid ||
+            m_d_prog_cp_gen != state.cp_vcd_gen ||
+            m_d_prog_vs_gen != state.xf_vs_uid_gen ||
+            m_d_prog_ps_gen != state.bp_ps_uid_gen ||
+            m_d_prog_vat != packet.vat) {
+            m_d_prog_cached = GetOrCompileDolphinProgram(state, decoded.topology, packet.vat, caps, opts);
+            m_d_prog_cp_gen = state.cp_vcd_gen;
+            m_d_prog_vs_gen = state.xf_vs_uid_gen;
+            m_d_prog_ps_gen = state.bp_ps_uid_gen;
+            m_d_prog_vat = packet.vat;
+            m_d_prog_valid = true;
+        }
+        const GLuint prog = m_d_prog_cached;
+        if (prog == 0) {
+            FlushDolphinBatch();
+            return false;
+        }
+
+        float vp_wd_half = 320.0f, vp_ht_half = -240.0f, vp_zrange = 16777215.0f, vp_farz = 16777215.0f;
+        GLint new_vp_x = 0, new_vp_y = 0;
+        GLsizei new_vp_w = 640, new_vp_h = 480;
+        double new_depth_n = 1.0, new_depth_f = 0.0;
+        bool new_sc_enabled = false;
+        int new_sc_x = 0, new_sc_y = 0, new_sc_w = 0, new_sc_h = 0;
+        ComputeViewportAndScissor(state,
+                                  &vp_wd_half, &vp_ht_half, &vp_zrange, &vp_farz,
+                                  &new_vp_x, &new_vp_y, &new_vp_w, &new_vp_h,
+                                  &new_depth_n, &new_depth_f,
+                                  &new_sc_enabled, &new_sc_x, &new_sc_y, &new_sc_w, &new_sc_h);
+
+        if (pstate.use_vertex_depth_range) {
+            new_depth_n = (vp_zrange < 0.0f) ? 0.0 : 1.0;
+            new_depth_f = (vp_zrange < 0.0f) ? 1.0 : 0.0;
+        }
+
+        if (!m_d_texmask_valid || m_d_texmask_gen != state.bp_used_tex_gen) {
+            const uint32_t genmode = state.bp[0x00u];
+            const uint32_t num_tev_stages = std::clamp<uint32_t>(((genmode >> 10) & 0xFu) + 1u, 1u, 16u);
+            const uint32_t num_ind_stages = std::min<uint32_t>(4u, (genmode >> 16) & 7u);
+            uint32_t mask = 0u;
+            for (uint32_t st = 0; st < num_tev_stages; ++st) {
+                const uint32_t tref = state.bp[0x28u + (st >> 1)];
+                const uint32_t shift = (st & 1u) ? 12u : 0u;
+                if (((tref >> (shift + 6u)) & 1u) != 0u) {
+                    const uint32_t tmap = (tref >> shift) & 7u;
+                    mask |= (1u << tmap);
+                }
+            }
+            const uint32_t iref = state.bp[0x27u];
+            for (uint32_t s = 0; s < num_ind_stages; ++s) {
+                const uint32_t tmap = (iref >> (6u * s)) & 7u;
+                mask |= (1u << tmap);
+            }
+            m_d_texmask_cached = mask;
+            m_d_texmask_gen = state.bp_used_tex_gen;
+            m_d_texmask_valid = true;
+        }
+        const uint32_t used_texmap_mask = m_d_texmask_cached;
+
+        if (!m_d_texres_valid ||
+            m_d_texres_bp_gen != state.bp_tex_gen ||
+            m_d_texres_tmem_gen != state.tmem_generation ||
+            m_d_texres_mask != used_texmap_mask ||
+            m_d_texres_frame != m_current_frame) {
+            m_d_tex_w.fill(1u);
+            m_d_tex_h.fill(1u);
+            m_d_stage_gl_tex.fill(0u);
+            for (uint32_t m = used_texmap_mask; m != 0u; ) {
+                const uint32_t tm = static_cast<uint32_t>(std::countr_zero(m));
+                m &= (m - 1u);
+                uint32_t rw = 1u, rh = 1u;
+                int rmode = 0;
+                const GLuint gtex = ResolveStageTexture(static_cast<uint8_t>(tm), state, &rw, &rh, &rmode);
+                m_d_stage_gl_tex[tm] = gtex ? gtex : m_dummy_white_tex;
+                m_d_tex_w[tm] = rw;
+                m_d_tex_h[tm] = rh;
+            }
+            m_d_texres_bp_gen = state.bp_tex_gen;
+            m_d_texres_tmem_gen = state.tmem_generation;
+            m_d_texres_mask = used_texmap_mask;
+            m_d_texres_frame = m_current_frame;
+            m_d_texres_valid = true;
+        }
+
+        const bool need_vs_ubo = !(m_d_vs_ubo_valid &&
+                                   m_d_vs_xf_gen == state.xf_vs_ubo_gen &&
+                                   m_d_vs_cp_gen == state.cp_vcd_gen &&
+                                   m_d_vs_bp_pipe_gen == state.bp_pipeline_gen &&
+                                   m_d_vs_vat == packet.vat &&
+                                   m_d_vs_disp_w == m_last_disp_w &&
+                                   m_d_vs_disp_h == m_last_disp_h);
+        const bool need_ps_ubo = !(m_d_ps_ubo_valid &&
+                                   m_d_ps_bp_gen == state.bp_ps_ubo_gen &&
+                                   m_d_ps_col_gen == state.bp_tev_col_generation &&
+                                   m_d_ps_tex_gen == state.bp_tex_gen &&
+                                   m_d_ps_tev_gen == state.bp_tev_generation &&
+                                   m_d_ps_vp_gen == state.xf_vp_gen &&
+                                   m_d_ps_disp_w == m_last_disp_w &&
+                                   m_d_ps_disp_h == m_last_disp_h &&
+                                   m_d_ps_tex_w == m_d_tex_w &&
+                                   m_d_ps_tex_h == m_d_tex_h);
+        if (need_vs_ubo || need_ps_ubo) {
+            const float fb_vp_w = static_cast<float>((m_last_disp_w > 0 && m_last_disp_w <= EFB_WIDTH) ? m_last_disp_w : 512);
+            const float fb_vp_h = static_cast<float>((m_last_disp_h > 0 && m_last_disp_h <= EFB_HEIGHT) ? m_last_disp_h : 448);
+            moderngekko::DolphinShaderCompiler::PopulateConstants(
+                state, packet.vat, m_d_tex_w, m_d_tex_h, fb_vp_w, fb_vp_h, caps,
+                need_vs_ubo ? &m_vs_ubo_cpu : nullptr,
+                need_ps_ubo ? &m_ps_ubo_cpu : nullptr);
+            if (need_vs_ubo) {
+                m_d_vs_xf_gen = state.xf_vs_ubo_gen;
+                m_d_vs_cp_gen = state.cp_vcd_gen;
+                m_d_vs_bp_pipe_gen = state.bp_pipeline_gen;
+                m_d_vs_vat = packet.vat;
+                m_d_vs_disp_w = m_last_disp_w;
+                m_d_vs_disp_h = m_last_disp_h;
+                m_d_vs_ubo_valid = true;
+            }
+            if (need_ps_ubo) {
+                m_d_ps_bp_gen = state.bp_ps_ubo_gen;
+                m_d_ps_col_gen = state.bp_tev_col_generation;
+                m_d_ps_tex_gen = state.bp_tex_gen;
+                m_d_ps_tev_gen = state.bp_tev_generation;
+                m_d_ps_vp_gen = state.xf_vp_gen;
+                m_d_ps_disp_w = m_last_disp_w;
+                m_d_ps_disp_h = m_last_disp_h;
+                m_d_ps_tex_w = m_d_tex_w;
+                m_d_ps_tex_h = m_d_tex_h;
+                m_d_ps_ubo_valid = true;
+            }
+        }
+        const bool vs_ubo_changed = need_vs_ubo && !m_vs_ubo_cpu.empty() &&
+                                    (!m_vs_ubo_valid || m_last_vs_ubo != m_vs_ubo_cpu);
+        const bool ps_ubo_changed = need_ps_ubo && !m_ps_ubo_cpu.empty() &&
+                                    (!m_ps_ubo_valid || m_last_ps_ubo != m_ps_ubo_cpu);
+
+        const uint32_t vcd_l = (state.cp.size() > 0x50u) ? state.cp[0x50u] : 0u;
+        const uint32_t vcd_h = (state.cp.size() > 0x60u) ? state.cp[0x60u] : 0u;
+        uint32_t active_uv_mask = 0u;
+        for (uint32_t t = 0; t < 8u; ++t) {
+            if ((((vcd_h >> (t * 2u)) & 3u) != 0u) || (((vcd_l >> (1u + t)) & 1u) != 0u)) {
+                active_uv_mask |= (1u << t);
+            }
+        }
+        auto pack_vtx = [active_uv_mask](DolphinGpuVertex& dst, const moderngekko::GxVertex& vtx) {
+            dst.pos[0] = vtx.position[0];
+            dst.pos[1] = vtx.position[1];
+            dst.pos[2] = vtx.position[2];
+            dst.posmtx = std::min<uint32_t>(vtx.position_matrix & 0x3Fu, 61u);
+            dst.nrm[0] = vtx.normal[0];
+            dst.nrm[1] = vtx.normal[1];
+            dst.nrm[2] = vtx.normal[2];
+            dst.tan[0] = vtx.tangent[0];
+            dst.tan[1] = vtx.tangent[1];
+            dst.tan[2] = vtx.tangent[2];
+            dst.binrm[0] = vtx.binormal[0];
+            dst.binrm[1] = vtx.binormal[1];
+            dst.binrm[2] = vtx.binormal[2];
+            dst.col0 = ByteSwap32(vtx.color[0]);
+            dst.col1 = ByteSwap32(vtx.color[1]);
+            for (uint32_t m = active_uv_mask; m != 0u; ) {
+                const uint32_t t = static_cast<uint32_t>(std::countr_zero(m));
+                m &= (m - 1u);
+                dst.uv[t][0] = vtx.texcoord[t][0];
+                dst.uv[t][1] = vtx.texcoord[t][1];
+                dst.uv[t][2] = static_cast<float>(std::min<uint32_t>(vtx.texture_matrix[t] & 0x3Fu, 61u));
+            }
+        };
+
+        const bool can_batch = (decoded.topology == moderngekko::GxTopology::Triangles) &&
+                               use_indexed &&
+                               (m_dolphin_vbo_mapped != nullptr) &&
+                               (m_ebo_mapped != nullptr) &&
+                               (vert_count <= m_dolphin_vbo_max_verts) &&
+                               (idx_count <= m_ebo_max_idxs);
+
+        if (m_dolphin_batch_active) {
+            bool matches = can_batch &&
+                           !vs_ubo_changed &&
+                           !ps_ubo_changed &&
+                           prog == m_dolphin_batch_prog &&
+                           DolphinPipelineStateEquals(pstate, m_dolphin_batch_pstate) &&
+                           new_vp_x == m_dolphin_batch_vp_x &&
+                           new_vp_y == m_dolphin_batch_vp_y &&
+                           new_vp_w == m_dolphin_batch_vp_w &&
+                           new_vp_h == m_dolphin_batch_vp_h &&
+                           new_depth_n == m_dolphin_batch_depth_n &&
+                           new_depth_f == m_dolphin_batch_depth_f &&
+                           new_sc_enabled == m_dolphin_batch_sc_enabled &&
+                           (!new_sc_enabled || (new_sc_x == m_dolphin_batch_sc_x &&
+                                                new_sc_y == m_dolphin_batch_sc_y &&
+                                                new_sc_w == m_dolphin_batch_sc_w &&
+                                                new_sc_h == m_dolphin_batch_sc_h));
+            if (matches) {
+                for (uint32_t m = used_texmap_mask; m != 0u; ) {
+                    const uint32_t tm = static_cast<uint32_t>(std::countr_zero(m));
+                    m &= (m - 1u);
+                    GLuint target_tex = m_d_stage_gl_tex[tm];
+                    if (target_tex == 0u) target_tex = m_dummy_white_tex;
+                    if (m_bound_tex[tm] != target_tex) {
+                        matches = false;
+                        break;
+                    }
+                }
+            }
+            if (matches) {
+                const size_t v_cur = m_dolphin_vbo_cursor;
+                const size_t e_cur = m_ebo_cursor_idx;
+                if (v_cur + vert_count > m_dolphin_vbo_max_verts ||
+                    (v_cur / DOLPHIN_VBO_Q_VERTS) != ((v_cur + vert_count - 1u) / DOLPHIN_VBO_Q_VERTS) ||
+                    e_cur + idx_count > m_ebo_max_idxs ||
+                    (e_cur / EBO_Q_IDXS) != ((e_cur + idx_count - 1u) / EBO_Q_IDXS)) {
+                    matches = false;
+                }
+            }
+            if (matches) {
+                DolphinGpuVertex* vtx_dst = reinterpret_cast<DolphinGpuVertex*>(m_dolphin_vbo_mapped) + m_dolphin_vbo_cursor;
+                for (size_t i = 0; i < vert_count; ++i) {
+                    pack_vtx(vtx_dst[i], decoded.vertices[i]);
+                }
+                uint32_t* ebo_dst = reinterpret_cast<uint32_t*>(m_ebo_mapped) + m_ebo_cursor_idx;
+                const uint32_t vtx_rel = static_cast<uint32_t>(m_dolphin_vbo_cursor - m_dolphin_batch_vbo_base);
+                const uint32_t* src_idx = decoded.indices.data();
+                if (vtx_rel == 0u) {
+                    std::memcpy(ebo_dst, src_idx, idx_count * sizeof(uint32_t));
+                } else {
+                    for (size_t i = 0; i < idx_count; ++i) {
+                        ebo_dst[i] = src_idx[i] + vtx_rel;
+                    }
+                }
+                m_dolphin_vbo_cursor += vert_count;
+                m_ebo_cursor_idx += idx_count;
+                m_dolphin_batch_ebo_count += idx_count;
+                m_has_drawn_in_efb = true;
+                ++m_draws_since_clear;
+                return true;
+            }
+            FlushDolphinBatch();
+        }
+
+        if (vs_ubo_changed || ps_ubo_changed) {
+            auto upload_ubo = [&](GLuint ubo, const std::vector<uint8_t>& cpu_buf, std::vector<uint8_t>& last_buf,
+                                  bool& valid, GLsizeiptr& cap) {
+                const GLsizeiptr sz = static_cast<GLsizeiptr>(cpu_buf.size());
+                m_glBindBuffer(GL_UNIFORM_BUFFER, ubo);
+                if (sz > cap) {
+                    cap = sz;
+                    m_glBufferData(GL_UNIFORM_BUFFER, cap, cpu_buf.data(), GL_DYNAMIC_DRAW);
+                } else {
+                    m_glBufferSubData(GL_UNIFORM_BUFFER, 0, sz, cpu_buf.data());
+                }
+                last_buf = cpu_buf;
+                valid = true;
+            };
+            if (vs_ubo_changed) upload_ubo(m_vs_ubo, m_vs_ubo_cpu, m_last_vs_ubo, m_vs_ubo_valid, m_vs_ubo_cap);
+            if (ps_ubo_changed) upload_ubo(m_ps_ubo, m_ps_ubo_cpu, m_last_ps_ubo, m_ps_ubo_valid, m_ps_ubo_cap);
+            m_glBindBuffer(GL_UNIFORM_BUFFER, 0);
+        }
+
+        if (!m_ubos_bound) {
+            m_glBindBufferBase(GL_UNIFORM_BUFFER, 2, m_vs_ubo);
+            m_glBindBufferBase(GL_UNIFORM_BUFFER, 1, m_ps_ubo);
+            m_ubos_bound = true;
+        }
+
+        if (m_efb_fbo != 0 && m_glBindFramebuffer && !m_bound_efb_fbo) {
+            m_glBindFramebuffer(GL_FRAMEBUFFER, m_efb_fbo);
+            m_bound_efb_fbo = true;
+        }
+
+        if (!m_dolphin_clip_enabled) {
+            glEnable(GL_DEPTH_CLAMP);
+            glEnable(GL_CLIP_DISTANCE0);
+            glEnable(GL_CLIP_DISTANCE1);
+            m_dolphin_clip_enabled = true;
+        }
+
+        if (!m_dolphin_vao_bound) {
+            m_glBindVertexArray(m_dolphin_vao);
+            m_dolphin_vao_bound = true;
+            m_vbo_attribs_bound = false;
+        }
+
+        if (m_current_program != prog) {
+            m_glUseProgram(prog);
+            m_current_program = prog;
+            m_last_tev_prog = nullptr;
+        }
+
+        if (new_vp_x != m_last_draw_vp_x || new_vp_y != m_last_draw_vp_y ||
+            new_vp_w != m_last_draw_vp_w || new_vp_h != m_last_draw_vp_h) {
+            glViewport(new_vp_x, new_vp_y, new_vp_w, new_vp_h);
+            m_last_draw_vp_x = new_vp_x;
+            m_last_draw_vp_y = new_vp_y;
+            m_last_draw_vp_w = new_vp_w;
+            m_last_draw_vp_h = new_vp_h;
+        }
+        if (m_glClipControl != nullptr && (new_depth_n != m_last_depth_n || new_depth_f != m_last_depth_f)) {
+            glDepthRange(new_depth_n, new_depth_f);
+            m_last_depth_n = new_depth_n;
+            m_last_depth_f = new_depth_f;
+        }
+        if (!m_sc_enabled && new_sc_enabled) {
+            glEnable(GL_SCISSOR_TEST);
+            m_sc_enabled = true;
+        } else if (m_sc_enabled && !new_sc_enabled) {
+            glDisable(GL_SCISSOR_TEST);
+            m_sc_enabled = false;
+        }
+        if (new_sc_enabled && (new_sc_x != m_sc_x || new_sc_y != m_sc_y || new_sc_w != m_sc_w || new_sc_h != m_sc_h)) {
+            glScissor(new_sc_x, new_sc_y, new_sc_w, new_sc_h);
+            m_sc_x = new_sc_x; m_sc_y = new_sc_y; m_sc_w = new_sc_w; m_sc_h = new_sc_h;
+        }
+
+        if (!m_dolphin_state_valid || m_last_dolphin_pstate.cull_mode != pstate.cull_mode) {
+            if (pstate.cull_mode != 0u) {
+                glEnable(GL_CULL_FACE);
+                glCullFace(GL_BACK);
+                glFrontFace(pstate.cull_mode == 2u ? GL_CCW : GL_CW);
+            } else {
+                glDisable(GL_CULL_FACE);
+            }
+            m_cached_cull = 0xFFFFFFFFu;
+        }
+
+        if (!m_dolphin_state_valid ||
+            m_last_dolphin_pstate.depth_test != pstate.depth_test ||
+            m_last_dolphin_pstate.depth_update != pstate.depth_update ||
+            m_last_dolphin_pstate.depth_func != pstate.depth_func) {
+            static const GLenum gl_compare_modes[8] = {
+                GL_NEVER, GL_LESS, GL_EQUAL, GL_LEQUAL,
+                GL_GREATER, GL_NOTEQUAL, GL_GEQUAL, GL_ALWAYS
+            };
+            if (pstate.depth_test) {
+                glEnable(GL_DEPTH_TEST);
+                glDepthMask(pstate.depth_update ? GL_TRUE : GL_FALSE);
+                glDepthFunc(gl_compare_modes[pstate.depth_func & 7u]);
+            } else {
+                glDisable(GL_DEPTH_TEST);
+                glDepthMask(GL_FALSE);
+            }
+            m_cached_zmode = 0xFFFFFFFFu;
+        }
+
+        const bool blend_changed = !m_dolphin_state_valid ||
+            m_last_dolphin_pstate.blend_enable != pstate.blend_enable ||
+            m_last_dolphin_pstate.subtract != pstate.subtract ||
+            m_last_dolphin_pstate.subtract_alpha != pstate.subtract_alpha ||
+            m_last_dolphin_pstate.use_dual_src != pstate.use_dual_src ||
+            m_last_dolphin_pstate.src_factor != pstate.src_factor ||
+            m_last_dolphin_pstate.dst_factor != pstate.dst_factor ||
+            m_last_dolphin_pstate.src_factor_alpha != pstate.src_factor_alpha ||
+            m_last_dolphin_pstate.dst_factor_alpha != pstate.dst_factor_alpha ||
+            m_last_dolphin_pstate.logic_op_enable != pstate.logic_op_enable ||
+            m_last_dolphin_pstate.logic_mode != pstate.logic_mode ||
+            m_last_dolphin_pstate.color_update != pstate.color_update ||
+            m_last_dolphin_pstate.alpha_update != pstate.alpha_update;
+        if (blend_changed) {
+            const bool useDual = pstate.use_dual_src;
+            const GLenum src_factors[8] = {
+                GL_ZERO, GL_ONE, GL_DST_COLOR, GL_ONE_MINUS_DST_COLOR,
+                useDual ? static_cast<GLenum>(GL_SRC1_ALPHA) : static_cast<GLenum>(GL_SRC_ALPHA),
+                useDual ? static_cast<GLenum>(GL_ONE_MINUS_SRC1_ALPHA) : static_cast<GLenum>(GL_ONE_MINUS_SRC_ALPHA),
+                GL_DST_ALPHA, GL_ONE_MINUS_DST_ALPHA
+            };
+            const GLenum dst_factors[8] = {
+                GL_ZERO, GL_ONE, GL_SRC_COLOR, GL_ONE_MINUS_SRC_COLOR,
+                useDual ? static_cast<GLenum>(GL_SRC1_ALPHA) : static_cast<GLenum>(GL_SRC_ALPHA),
+                useDual ? static_cast<GLenum>(GL_ONE_MINUS_SRC1_ALPHA) : static_cast<GLenum>(GL_ONE_MINUS_SRC_ALPHA),
+                GL_DST_ALPHA, GL_ONE_MINUS_DST_ALPHA
+            };
+            if (pstate.blend_enable) glEnable(GL_BLEND);
+            else glDisable(GL_BLEND);
+
+            const GLenum eq = pstate.subtract ? GL_FUNC_REVERSE_SUBTRACT : GL_FUNC_ADD;
+            const GLenum eq_a = pstate.subtract_alpha ? GL_FUNC_REVERSE_SUBTRACT : GL_FUNC_ADD;
+            if (m_glBlendEquationSeparate) m_glBlendEquationSeparate(eq, eq_a);
+            if (m_glBlendFuncSeparate) {
+                m_glBlendFuncSeparate(src_factors[pstate.src_factor & 7u],
+                                      dst_factors[pstate.dst_factor & 7u],
+                                      src_factors[pstate.src_factor_alpha & 7u],
+                                      dst_factors[pstate.dst_factor_alpha & 7u]);
+            }
+
+            static const GLenum logic_op_codes[16] = {
+                GL_CLEAR, GL_AND, GL_AND_REVERSE, GL_COPY,
+                GL_AND_INVERTED, GL_NOOP, GL_XOR, GL_OR,
+                GL_NOR, GL_EQUIV, GL_INVERT, GL_OR_REVERSE,
+                GL_COPY_INVERTED, GL_OR_INVERTED, GL_NAND, GL_SET
+            };
+            if (pstate.logic_op_enable) {
+                glEnable(GL_COLOR_LOGIC_OP);
+                glLogicOp(logic_op_codes[pstate.logic_mode & 0xFu]);
+            } else {
+                glDisable(GL_COLOR_LOGIC_OP);
+            }
+            glColorMask(pstate.color_update ? GL_TRUE : GL_FALSE,
+                        pstate.color_update ? GL_TRUE : GL_FALSE,
+                        pstate.color_update ? GL_TRUE : GL_FALSE,
+                        pstate.alpha_update ? GL_TRUE : GL_FALSE);
+            m_cached_blend_key = 0xFFFFFFFFu;
+        }
+        m_last_dolphin_pstate = pstate;
+        m_dolphin_state_valid = true;
+
+        for (uint32_t m = used_texmap_mask; m != 0u; ) {
+            const uint32_t u = static_cast<uint32_t>(std::countr_zero(m));
+            m &= (m - 1u);
+            GLuint target_tex = m_d_stage_gl_tex[u];
+            if (target_tex == 0u) target_tex = m_dummy_white_tex;
+            if (m_bound_tex[u] != target_tex) {
+                if (m_glActiveTexture && m_active_tex_unit != u) {
+                    m_glActiveTexture(GL_TEXTURE0 + u);
+                    m_active_tex_unit = u;
+                }
+                glBindTexture(GL_TEXTURE_2D_ARRAY, target_tex);
+                m_bound_tex[u] = target_tex;
+            }
+        }
+
+        const bool use_persist_vbo = (m_dolphin_vbo_mapped != nullptr && vert_count <= m_dolphin_vbo_max_verts);
+        size_t vbo_start_vtx = 0;
+        DolphinGpuVertex* vtx_dst = nullptr;
+        if (use_persist_vbo) {
+            const size_t q_cur = std::min<size_t>(m_dolphin_vbo_cursor / DOLPHIN_VBO_Q_VERTS, 3u);
+            if (m_dolphin_vbo_cursor + vert_count > m_dolphin_vbo_max_verts) {
+                if (m_dolphin_vbo_fences[q_cur]) m_glDeleteSync(m_dolphin_vbo_fences[q_cur]);
+                m_dolphin_vbo_fences[q_cur] = m_glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+                m_dolphin_vbo_cursor = 0;
+                if (m_dolphin_vbo_fences[0]) {
+                    m_glClientWaitSync(m_dolphin_vbo_fences[0], GL_SYNC_FLUSH_COMMANDS_BIT, 1000000000ULL);
+                    m_glDeleteSync(m_dolphin_vbo_fences[0]);
+                    m_dolphin_vbo_fences[0] = nullptr;
+                }
+            } else {
+                const size_t q_next = std::min<size_t>((m_dolphin_vbo_cursor + vert_count - 1u) / DOLPHIN_VBO_Q_VERTS, 3u);
+                if (q_next != q_cur) {
+                    if (m_dolphin_vbo_fences[q_cur]) m_glDeleteSync(m_dolphin_vbo_fences[q_cur]);
+                    m_dolphin_vbo_fences[q_cur] = m_glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+                    if (m_dolphin_vbo_fences[q_next]) {
+                        m_glClientWaitSync(m_dolphin_vbo_fences[q_next], GL_SYNC_FLUSH_COMMANDS_BIT, 1000000000ULL);
+                        m_glDeleteSync(m_dolphin_vbo_fences[q_next]);
+                        m_dolphin_vbo_fences[q_next] = nullptr;
+                    }
+                }
+            }
+            vbo_start_vtx = m_dolphin_vbo_cursor;
+            vtx_dst = reinterpret_cast<DolphinGpuVertex*>(m_dolphin_vbo_mapped) + vbo_start_vtx;
+            m_dolphin_vbo_cursor += vert_count;
+        } else {
+            m_dolphin_cpu_batch.resize(vert_count);
+            vtx_dst = m_dolphin_cpu_batch.data();
+        }
+
+        if (use_indexed) {
+            for (size_t i = 0; i < vert_count; ++i) {
+                pack_vtx(vtx_dst[i], decoded.vertices[i]);
+            }
+        } else {
+            for (size_t i = 0; i < vert_count; ++i) {
+                const uint32_t idx = decoded.indices[i];
+                pack_vtx(vtx_dst[i], (idx < decoded.vertices.size()) ? decoded.vertices[idx] : decoded.vertices[0]);
+            }
+        }
+
+        if (!use_persist_vbo && m_glBufferSubData && m_dolphin_vbo_capacity > 0) {
+            const GLsizeiptr needed_bytes = static_cast<GLsizeiptr>(vert_count * sizeof(DolphinGpuVertex));
+            m_glBindBuffer(GL_ARRAY_BUFFER, m_dolphin_vbo);
+            if (needed_bytes > m_dolphin_vbo_capacity) {
+                m_dolphin_vbo_capacity = std::max<GLsizeiptr>(needed_bytes * 2, m_dolphin_vbo_capacity);
+                m_glBufferData(GL_ARRAY_BUFFER, m_dolphin_vbo_capacity, nullptr, GL_STREAM_DRAW);
+                m_dolphin_vbo_cursor = 0;
+            }
+            const size_t cap_verts = static_cast<size_t>(m_dolphin_vbo_capacity / sizeof(DolphinGpuVertex));
+            if (m_dolphin_vbo_cursor + vert_count > cap_verts) {
+                m_glBufferData(GL_ARRAY_BUFFER, m_dolphin_vbo_capacity, nullptr, GL_STREAM_DRAW);
+                m_dolphin_vbo_cursor = 0;
+            }
+            vbo_start_vtx = m_dolphin_vbo_cursor;
+            m_glBufferSubData(GL_ARRAY_BUFFER,
+                              static_cast<GLintptr>(vbo_start_vtx * sizeof(DolphinGpuVertex)),
+                              needed_bytes, m_dolphin_cpu_batch.data());
+            m_dolphin_vbo_cursor += vert_count;
+            m_glBindBuffer(GL_ARRAY_BUFFER, 0);
+        }
+
+        GLenum gl_mode = GL_TRIANGLES;
+        if (decoded.topology == moderngekko::GxTopology::Lines) gl_mode = GL_LINES;
+        else if (decoded.topology == moderngekko::GxTopology::Points) gl_mode = GL_POINTS;
+
+        if (use_indexed) {
+            const size_t ebo_start_idx = UploadEboIndices(decoded.indices.data(), idx_count);
+            if (can_batch) {
+                m_dolphin_batch_active = true;
+                m_dolphin_batch_vbo_base = vbo_start_vtx;
+                m_dolphin_batch_ebo_start = ebo_start_idx;
+                m_dolphin_batch_ebo_count = idx_count;
+                m_dolphin_batch_prog = prog;
+                m_dolphin_batch_pstate = pstate;
+                m_dolphin_batch_vp_x = new_vp_x;
+                m_dolphin_batch_vp_y = new_vp_y;
+                m_dolphin_batch_vp_w = new_vp_w;
+                m_dolphin_batch_vp_h = new_vp_h;
+                m_dolphin_batch_depth_n = new_depth_n;
+                m_dolphin_batch_depth_f = new_depth_f;
+                m_dolphin_batch_sc_enabled = new_sc_enabled;
+                m_dolphin_batch_sc_x = new_sc_x;
+                m_dolphin_batch_sc_y = new_sc_y;
+                m_dolphin_batch_sc_w = new_sc_w;
+                m_dolphin_batch_sc_h = new_sc_h;
+            } else {
+                if (g_perf.enabled) {
+                    ++g_perf.gl_draw_calls;
+                }
+                m_glDrawElementsBaseVertex(gl_mode,
+                                           static_cast<GLsizei>(idx_count),
+                                           GL_UNSIGNED_INT,
+                                           reinterpret_cast<const void*>(ebo_start_idx * sizeof(uint32_t)),
+                                           static_cast<GLint>(vbo_start_vtx));
+            }
+        } else {
+            if (g_perf.enabled) {
+                ++g_perf.gl_draw_calls;
+            }
+            glDrawArrays(gl_mode, static_cast<GLint>(vbo_start_vtx), static_cast<GLsizei>(vert_count));
+        }
+
+        m_has_drawn_in_efb = true;
+        ++m_draws_since_clear;
+        return true;
+    }
+#endif
 
     void SubmitDraw(const moderngekko::GxDrawPacket& packet,
                     const moderngekko::GxStateView& state) override {
@@ -708,7 +1929,8 @@ public:
         ++m_draw_count;
         m_vertex_count += decoded.vertices.size();
 
-        if (m_draw_count <= 5 || (m_draw_count >= 60 && m_draw_count <= 75) || m_draw_count == 80 || m_draw_count == 83 || m_draw_count == 8842 || m_draw_count == 8843 || m_draw_count == 8850) {
+        if (m_audit_dolphin_shaders &&
+            (m_draw_count <= 5 || (m_draw_count >= 60 && m_draw_count <= 75) || m_draw_count == 80 || m_draw_count == 83 || m_draw_count == 8842 || m_draw_count == 8843 || m_draw_count == 8850)) {
             std::printf("[DRAW-DISPATCH %llu] vtxs=%zu topology=%d\n",
                         static_cast<unsigned long long>(m_draw_count), decoded.vertices.size(), static_cast<int>(decoded.topology));
             std::printf("  Packet raw bytes (%zu bytes, vtx_size=%u, count=%u, vat=%u):\n    ",
@@ -757,6 +1979,18 @@ public:
             return;
         }
 
+        if (m_use_dolphin_pipeline && SubmitDolphinDraw(packet, decoded, state)) {
+            return;
+        }
+
+        if (m_dolphin_clip_enabled) {
+            glDisable(GL_CLIP_DISTANCE0);
+            glDisable(GL_CLIP_DISTANCE1);
+            glDisable(GL_DEPTH_CLAMP);
+            m_dolphin_clip_enabled = false;
+        }
+        m_dolphin_state_valid = false;
+
         const uint32_t genmode = state.bp[0x00u];
         const uint32_t cull_mode = (genmode >> 14) & 3u;
         // CullMode::All (3) descarta triángulos/quads en hardware Flipper
@@ -774,8 +2008,8 @@ public:
         // 2. Pre-calcular Viewport GX (xf[0x101A..0x101F]) y Scissor (bp[0x20..0x21], bp[0x59]) en variables locales
         const float* xf_floats = reinterpret_cast<const float*>(state.xf.data());
         const uint32_t sc_off = state.bp[0x59u];
-        const int x_off = (sc_off != 0u) ? static_cast<int>((sc_off & 0x3FFu) << 1) : 342;
-        const int y_off = (sc_off != 0u) ? static_cast<int>(((sc_off >> 10) & 0x3FFu) << 1) : 342;
+        const int x_off = (sc_off != 0u) ? static_cast<int>((sc_off & 0x1FFu) << 1) : 342;
+        const int y_off = (sc_off != 0u) ? static_cast<int>(((sc_off >> 10) & 0x1FFu) << 1) : 342;
         float vp_wd_half = m_cached_vp_wd_half;
         float vp_ht_half = m_cached_vp_ht_half;
         float vp_zrange  = m_cached_vp_zrange;
@@ -801,10 +2035,10 @@ public:
 
             const bool vp_is_valid = std::isfinite(vp_wd_half) && std::isfinite(vp_ht_half) &&
                                      std::isfinite(vp_xorig) && std::isfinite(vp_yorig) &&
-                                     std::fabs(vp_wd_half) >= 0.5f && std::fabs(vp_wd_half) <= 320.0f &&
-                                     std::fabs(vp_ht_half) >= 0.5f && std::fabs(vp_ht_half) <= 264.0f &&
-                                     vp_xorig >= -320.0f && vp_xorig <= 640.0f &&
-                                     vp_yorig >= -264.0f && vp_yorig <= 528.0f;
+                                     std::fabs(vp_wd_half) >= 0.5f && std::fabs(vp_wd_half) <= 2048.0f &&
+                                     std::fabs(vp_ht_half) >= 0.5f && std::fabs(vp_ht_half) <= 2048.0f &&
+                                     vp_xorig >= -2048.0f && vp_xorig <= 2048.0f &&
+                                     vp_yorig >= -2048.0f && vp_yorig <= 2048.0f;
 
             if (!vp_is_valid) {
                 const float target_w = (m_last_disp_w > 0 && m_last_disp_w <= EFB_WIDTH) ? static_cast<float>(m_last_disp_w) : 512.0f;
@@ -830,14 +2064,14 @@ public:
             efb_vp_left = vp_xorig - std::fabs(vp_wd_half);
             efb_vp_top  = vp_yorig - std::fabs(vp_ht_half);
 
-            new_vp_x = std::clamp<GLint>(static_cast<GLint>(std::lround(efb_vp_left)), 0, EFB_WIDTH - 1);
-            new_vp_y = std::clamp<GLint>(static_cast<GLint>(std::lround(static_cast<float>(EFB_HEIGHT) - (efb_vp_top + vp_h_f))), 0, EFB_HEIGHT - 1);
-            new_vp_w = std::clamp<GLsizei>(std::max<GLsizei>(1, static_cast<GLsizei>(std::lround(vp_w_f))), 1, EFB_WIDTH - new_vp_x);
-            new_vp_h = std::clamp<GLsizei>(std::max<GLsizei>(1, static_cast<GLsizei>(std::lround(vp_h_f))), 1, EFB_HEIGHT - new_vp_y);
+            new_vp_x = std::clamp<GLint>(static_cast<GLint>(std::lround(efb_vp_left)), -4096, 4096);
+            new_vp_y = std::clamp<GLint>(static_cast<GLint>(std::lround(static_cast<float>(EFB_HEIGHT) - (efb_vp_top + vp_h_f))), -4096, 4096);
+            new_vp_w = std::clamp<GLsizei>(std::max<GLsizei>(1, static_cast<GLsizei>(std::lround(vp_w_f))), 1, 8192);
+            new_vp_h = std::clamp<GLsizei>(std::max<GLsizei>(1, static_cast<GLsizei>(std::lround(vp_h_f))), 1, 8192);
 
             const bool z_vp_valid = std::isfinite(vp_farz) && std::isfinite(vp_zrange) && (vp_farz != 0.0f || vp_zrange != 0.0f);
-            new_depth_n = z_vp_valid ? std::clamp(static_cast<double>(vp_farz) / 16777215.0, 0.0, 1.0) : 1.0;
-            new_depth_f = z_vp_valid ? std::clamp(static_cast<double>(vp_farz - vp_zrange) / 16777215.0, 0.0, 1.0) : 0.0;
+            new_depth_n = z_vp_valid ? std::clamp(static_cast<double>(vp_farz) / 16777216.0, 0.0, 1.0) : 1.0;
+            new_depth_f = z_vp_valid ? std::clamp(static_cast<double>(vp_farz - vp_zrange) / 16777216.0, 0.0, 1.0) : 0.0;
 
             if (state.xf.size() >= 0x1020u) {
                 std::memcpy(m_cached_xf_vp, &state.xf[0x101Au], 24);
@@ -869,6 +2103,7 @@ public:
             new_sc_enabled = false;
             new_sc_x = 0; new_sc_y = 0; new_sc_w = 0; new_sc_h = 0;
             if (sc_br != 0u) {
+                new_sc_enabled = true;
                 const int raw_l = static_cast<int>((sc_tl >> 12) & 0x7FFu);
                 const int raw_t = static_cast<int>(sc_tl & 0x7FFu);
                 const int raw_r = static_cast<int>((sc_br >> 12) & 0x7FFu);
@@ -879,7 +2114,6 @@ public:
                     const int sc_r = std::clamp(raw_r + 1 - x_off, 0, EFB_WIDTH);
                     const int sc_b = std::clamp(raw_b + 1 - y_off, 0, EFB_HEIGHT);
                     if (sc_r > sc_l && sc_b > sc_t) {
-                        new_sc_enabled = true;
                         new_sc_x = sc_l;
                         new_sc_y = EFB_HEIGHT - sc_b;
                         new_sc_w = sc_r - sc_l;
@@ -1104,7 +2338,7 @@ public:
         if (tev_prog != nullptr && tev_prog->program != 0 && m_vbo != 0) {
             if (m_vbo_mapped && est_verts <= m_vbo_max_verts) {
                 if (!m_batch_active) {
-                    const size_t q_cur = m_vbo_cursor_vtx / VBO_Q_VERTS;
+                    const size_t q_cur = std::min<size_t>(m_vbo_cursor_vtx / VBO_Q_VERTS, 3u);
                     if (m_vbo_cursor_vtx + est_verts > m_vbo_max_verts) {
                         if (m_vbo_fences[q_cur]) m_glDeleteSync(m_vbo_fences[q_cur]);
                         m_vbo_fences[q_cur] = m_glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
@@ -1115,7 +2349,7 @@ public:
                             m_vbo_fences[0] = nullptr;
                         }
                     } else {
-                        const size_t q_next = (m_vbo_cursor_vtx + est_verts - 1u) / VBO_Q_VERTS;
+                        const size_t q_next = std::min<size_t>((m_vbo_cursor_vtx + est_verts - 1u) / VBO_Q_VERTS, 3u);
                         if (q_next != q_cur) {
                             if (m_vbo_fences[q_cur]) m_glDeleteSync(m_vbo_fences[q_cur]);
                             m_vbo_fences[q_cur] = m_glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
@@ -1131,7 +2365,7 @@ public:
             }
             if (use_indexed && m_ebo_mapped && idx_count <= m_ebo_max_idxs) {
                 if (!m_batch_active) {
-                    const size_t q_cur = m_ebo_cursor_idx / EBO_Q_IDXS;
+                    const size_t q_cur = std::min<size_t>(m_ebo_cursor_idx / EBO_Q_IDXS, 3u);
                     if (m_ebo_cursor_idx + idx_count > m_ebo_max_idxs) {
                         if (m_ebo_fences[q_cur]) m_glDeleteSync(m_ebo_fences[q_cur]);
                         m_ebo_fences[q_cur] = m_glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
@@ -1142,7 +2376,7 @@ public:
                             m_ebo_fences[0] = nullptr;
                         }
                     } else {
-                        const size_t q_next = (m_ebo_cursor_idx + idx_count - 1u) / EBO_Q_IDXS;
+                        const size_t q_next = std::min<size_t>((m_ebo_cursor_idx + idx_count - 1u) / EBO_Q_IDXS, 3u);
                         if (q_next != q_cur) {
                             if (m_ebo_fences[q_cur]) m_glDeleteSync(m_ebo_fences[q_cur]);
                             m_ebo_fences[q_cur] = m_glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
@@ -1321,7 +2555,7 @@ public:
                     m_glActiveTexture(GL_TEXTURE0 + tm);
                     m_active_tex_unit = tm;
                 }
-                glBindTexture(GL_TEXTURE_2D, target_tex);
+                glBindTexture(GL_TEXTURE_2D_ARRAY, target_tex);
                 m_bound_tex[tm] = target_tex;
             }
         }
@@ -1448,22 +2682,29 @@ public:
             tev_prog->uniforms_valid = true;
 
             if (!m_vbo_attribs_bound) {
-                m_glBindBuffer(GL_ARRAY_BUFFER, m_vbo);
-                if (m_ebo != 0) {
-                    m_glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_ebo);
+                if (m_glBindVertexArray && m_vao != 0) {
+                    m_glBindVertexArray(m_vao);
                 }
-                m_glEnableVertexAttribArray(0);
-                m_glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<const void*>(offsetof(GpuVertex, pos)));
-                m_glEnableVertexAttribArray(1);
-                m_glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<const void*>(offsetof(GpuVertex, col0)));
-                m_glEnableVertexAttribArray(2);
-                m_glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<const void*>(offsetof(GpuVertex, col1)));
-                for (GLuint tc = 0; tc < 8u; ++tc) {
-                    m_glEnableVertexAttribArray(3u + tc);
-                    m_glVertexAttribPointer(3u + tc, 3, GL_FLOAT, GL_FALSE, stride,
-                                            reinterpret_cast<const void*>(offsetof(GpuVertex, uv) + tc * sizeof(float) * 3u));
+                m_glBindBuffer(GL_ARRAY_BUFFER, m_vbo);
+                if (!m_vao_configured) {
+                    if (m_ebo != 0) {
+                        m_glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_ebo);
+                    }
+                    m_glEnableVertexAttribArray(0);
+                    m_glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<const void*>(offsetof(GpuVertex, pos)));
+                    m_glEnableVertexAttribArray(1);
+                    m_glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<const void*>(offsetof(GpuVertex, col0)));
+                    m_glEnableVertexAttribArray(2);
+                    m_glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<const void*>(offsetof(GpuVertex, col1)));
+                    for (GLuint tc = 0; tc < 8u; ++tc) {
+                        m_glEnableVertexAttribArray(3u + tc);
+                        m_glVertexAttribPointer(3u + tc, 3, GL_FLOAT, GL_FALSE, stride,
+                                                reinterpret_cast<const void*>(offsetof(GpuVertex, uv) + tc * sizeof(float) * 3u));
+                    }
+                    m_vao_configured = true;
                 }
                 m_vbo_attribs_bound = true;
+                m_dolphin_vao_bound = false;
             }
 
             const GLsizeiptr needed_bytes = static_cast<GLsizeiptr>(batch_verts * sizeof(GpuVertex));
@@ -1628,15 +2869,19 @@ public:
             if (entry.gl_tex == 0) {
                 glGenTextures(1, &entry.gl_tex);
             }
-            if (entry.width != static_cast<uint32_t>(dst_w) || entry.height != static_cast<uint32_t>(dst_h)) {
-                glBindTexture(GL_TEXTURE_2D, entry.gl_tex);
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, dst_w, dst_h, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+            const bool resized = (entry.width != static_cast<uint32_t>(dst_w) || entry.height != static_cast<uint32_t>(dst_h));
+            if (resized && m_glTexImage3D) {
+                glBindTexture(GL_TEXTURE_2D_ARRAY, entry.gl_tex);
+                glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAX_LEVEL, 0);
+                glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+                glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+                m_glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_RGBA8, dst_w, dst_h, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
                 entry.width = static_cast<uint32_t>(dst_w);
                 entry.height = static_cast<uint32_t>(dst_h);
+                entry.last_mode0 = 0xFFFFFFFFu;
+                entry.last_tex_mode = -1;
             }
 
             // tp_realFormat = (fmt / 2) + (fmt & 1) * 8
@@ -1651,10 +2896,20 @@ public:
             } else {
                 entry.tex_mode = 0; // RGBA completo
             }
+            if (resized || entry.last_tex_mode != entry.tex_mode) {
+                glBindTexture(GL_TEXTURE_2D_ARRAY, entry.gl_tex);
+                ApplyGxTextureSwizzle(entry.tex_mode);
+                entry.last_tex_mode = entry.tex_mode;
+                glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+            } else if (resized) {
+                glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+            }
 
             m_glBindFramebuffer(GL_READ_FRAMEBUFFER, m_efb_fbo);
             m_glBindFramebuffer(GL_DRAW_FRAMEBUFFER, m_efb_copy_fbo);
-            m_glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, entry.gl_tex, 0);
+            if (m_glFramebufferTextureLayer) {
+                m_glFramebufferTextureLayer(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, entry.gl_tex, 0, 0);
+            }
             glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
             // Invertir Y al copiar para que t=0 de la textura corresponda al borde superior de GX
             m_glBlitFramebuffer(src_x0, gl_src_y1, src_x1, gl_src_y0,
@@ -1663,10 +2918,13 @@ public:
             entry.ram_snapshot_hash = SampleRamSignature(phys_dst);
             entry.valid = true;
         } else if (copy.copy_to_xfb && m_efb_display_fbo != 0 && m_glBlitFramebuffer) {
-            // Solo blitear si hubo draws reales en el EFB desde la ultima limpieza,
-            // o si todavia no tenemos ningun fotograma presentable.
-            // Esto previene que una copia subsequente sin draws sobreescriba la pantalla con negro.
-            if (m_draws_since_clear > 0 || !m_efb_has_displayable_frame) {
+            if (m_draws_since_clear > 0) {
+                m_zero_draw_xfb_streak = 0u;
+            } else {
+                ++m_zero_draw_xfb_streak;
+            }
+            // Permitir blitear frames consecutivos sin draws (>=2) para no suprimir fade-to-black reales.
+            if (m_draws_since_clear > 0 || !m_efb_has_displayable_frame || m_zero_draw_xfb_streak >= 2u) {
                 // Coordenadas Y en m_efb_fbo (640x528, origen GL abajo-izquierda vs origen GX arriba-izquierda)
                 const int blit_x0 = src_x0;
                 const int blit_y0 = gl_src_y0;
@@ -1684,8 +2942,8 @@ public:
                 m_last_disp_w = blit_x1 - blit_x0;
                 m_last_disp_h = copy_h;
                 m_efb_has_displayable_frame = true;
-                m_xfb_copied_this_frame = true;
             }
+            m_xfb_copied_this_frame = true;
         }
 
 
@@ -1731,27 +2989,36 @@ public:
         const int dst_h = (height > 0u && height <= EFB_HEIGHT) ? static_cast<int>(height) : 448;
 
         auto& entry = m_efb_textures[phys_dst];
-        FlushPendingBatch();
+        InvalidateGlStateCache();
         if (entry.gl_tex == 0) {
             glGenTextures(1, &entry.gl_tex);
         }
-        if (entry.width != static_cast<uint32_t>(dst_w) || entry.height != static_cast<uint32_t>(dst_h)) {
-            glBindTexture(GL_TEXTURE_2D, entry.gl_tex);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, dst_w, dst_h, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-            entry.width = static_cast<uint32_t>(dst_w);
-            entry.height = static_cast<uint32_t>(dst_h);
-        }
         entry.tex_mode = 1; // RGB opaco (A = 1.0)
+        const bool resized = (entry.width != static_cast<uint32_t>(dst_w) || entry.height != static_cast<uint32_t>(dst_h));
+        if ((resized && m_glTexImage3D) || entry.last_tex_mode != entry.tex_mode) {
+            glBindTexture(GL_TEXTURE_2D_ARRAY, entry.gl_tex);
+            if (resized && m_glTexImage3D) {
+                glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAX_LEVEL, 0);
+                glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+                glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+                m_glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_RGBA8, dst_w, dst_h, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+                entry.width = static_cast<uint32_t>(dst_w);
+                entry.height = static_cast<uint32_t>(dst_h);
+                entry.last_mode0 = 0xFFFFFFFFu;
+            }
+            ApplyGxTextureSwizzle(entry.tex_mode);
+            entry.last_tex_mode = entry.tex_mode;
+            glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+        }
 
-        InvalidateGlStateCache();
         if (m_efb_has_displayable_frame && m_efb_display_fbo != 0) {
             m_glBindFramebuffer(GL_READ_FRAMEBUFFER, m_efb_display_fbo);
             m_glBindFramebuffer(GL_DRAW_FRAMEBUFFER, m_efb_copy_fbo);
-            m_glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, entry.gl_tex, 0);
+            if (m_glFramebufferTextureLayer) {
+                m_glFramebufferTextureLayer(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, entry.gl_tex, 0, 0);
+            }
             glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
             // Invertir Y: en m_efb_display_fbo y=DISP_HEIGHT es arriba y y=0 es abajo; en entry.gl_tex t=0 es arriba
             m_glBlitFramebuffer(0, DISP_HEIGHT, DISP_WIDTH, 0,
@@ -1760,7 +3027,9 @@ public:
         } else if (m_efb_fbo != 0) {
             m_glBindFramebuffer(GL_READ_FRAMEBUFFER, m_efb_fbo);
             m_glBindFramebuffer(GL_DRAW_FRAMEBUFFER, m_efb_copy_fbo);
-            m_glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, entry.gl_tex, 0);
+            if (m_glFramebufferTextureLayer) {
+                m_glFramebufferTextureLayer(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, entry.gl_tex, 0, 0);
+            }
             glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
             m_glBlitFramebuffer(0, EFB_HEIGHT, dst_w, EFB_HEIGHT - dst_h,
                                 0, 0, dst_w, dst_h,
@@ -1821,7 +3090,6 @@ public:
         glDisable(GL_SCISSOR_TEST);
         glDisable(GL_CULL_FACE);
         glDisable(GL_COLOR_LOGIC_OP);
-        glDisable(GL_ALPHA_TEST);
         glDisable(GL_BLEND);
         glDisable(GL_DEPTH_TEST);
         if (m_glBlendEquation) {
@@ -1833,12 +3101,8 @@ public:
         glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        // Establecer viewport de aspecto y matrices ortográficas de pantalla
+        // Establecer viewport de aspecto
         glViewport(vp_x, vp_y, vp_w, vp_h);
-        glMatrixMode(GL_PROJECTION);
-        glLoadIdentity();
-        glMatrixMode(GL_MODELVIEW);
-        glLoadIdentity();
 
         // 3. Verificar si existe un XFB activo en MEM1 con datos de video YUY2 (solo si no hay frame EFB listo)
         u32 xfb_addr = (vi_xfb_addr != 0) ? vi_xfb_addr : m_last_xfb_address;
@@ -1870,115 +3134,127 @@ public:
             m_glBindFramebuffer(GL_FRAMEBUFFER, 0);
             m_efb_has_displayable_frame = true;
         }
-        m_xfb_copied_this_frame = false;
-        m_video_frame_captured = false;
+
+        auto draw_present_tex = [&](GLuint tex_id, int flip_y) {
+            if (!m_present_prog || !m_present_vao || !m_glUseProgram || !m_glBindVertexArray) return;
+            if (m_glActiveTexture) {
+                m_glActiveTexture(GL_TEXTURE0);
+            }
+            glBindTexture(GL_TEXTURE_2D, tex_id);
+            m_glUseProgram(m_present_prog);
+            if (m_present_flip_loc >= 0 && m_glUniform1i) {
+                m_glUniform1i(m_present_flip_loc, flip_y);
+            }
+            m_glBindVertexArray(m_present_vao);
+            glDrawArrays(GL_TRIANGLES, 0, 3);
+            m_glBindVertexArray(0);
+            m_glUseProgram(0);
+            glBindTexture(GL_TEXTURE_2D, 0);
+        };
+
+        auto draw_hud_prims = [&](GLenum mode, const float* verts, size_t vert_count,
+                                  float r, float g, float b, float a) {
+            if (!m_hud_prog || !m_hud_vao || !m_hud_vbo || !m_glUseProgram ||
+                !m_glBindVertexArray || !m_glBindBuffer || !m_glBufferSubData || vert_count == 0) {
+                return;
+            }
+            m_glUseProgram(m_hud_prog);
+            if (m_hud_color_loc >= 0 && m_glUniform4f) {
+                m_glUniform4f(m_hud_color_loc, r, g, b, a);
+            }
+            m_glBindVertexArray(m_hud_vao);
+            m_glBindBuffer(GL_ARRAY_BUFFER, m_hud_vbo);
+            m_glBufferSubData(GL_ARRAY_BUFFER, 0,
+                              static_cast<GLsizeiptr>(vert_count * 2u * sizeof(float)), verts);
+            glDrawArrays(mode, 0, static_cast<GLsizei>(vert_count));
+            m_glBindBuffer(GL_ARRAY_BUFFER, 0);
+            m_glBindVertexArray(0);
+            m_glUseProgram(0);
+        };
+
+        auto draw_hud_rect = [&](float x0, float y0, float x1, float y1,
+                                 float r, float g, float b, float a) {
+            const float tri_verts[12] = {
+                x0, y0,  x1, y0,  x1, y1,
+                x0, y0,  x1, y1,  x0, y1
+            };
+            draw_hud_prims(GL_TRIANGLES, tri_verts, 6u, r, g, b, a);
+        };
 
         if (m_efb_has_displayable_frame && m_efb_display_tex != 0) {
             // Presentación Virtual EFB (Renderizado GPU nativo de GX) - PRIORIDAD 1
-            glEnable(GL_TEXTURE_2D);
-            glBindTexture(GL_TEXTURE_2D, m_efb_display_tex);
-            glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
-            glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
-            glBegin(GL_QUADS);
-            glTexCoord2f(0.0f, 0.0f); glVertex2f(-1.0f, -1.0f);
-            glTexCoord2f(1.0f, 0.0f); glVertex2f( 1.0f, -1.0f);
-            glTexCoord2f(1.0f, 1.0f); glVertex2f( 1.0f,  1.0f);
-            glTexCoord2f(0.0f, 1.0f); glVertex2f(-1.0f,  1.0f);
-            glEnd();
-            glDisable(GL_TEXTURE_2D);
+            draw_present_tex(m_efb_display_tex, 0);
         } else if (xfb_valid) {
             // Presentación XFB (GameCube scanout desde memoria principal) - FALLBACK
-            glEnable(GL_TEXTURE_2D);
+            if (m_glActiveTexture) m_glActiveTexture(GL_TEXTURE0);
             glBindTexture(GL_TEXTURE_2D, m_xfb_tex);
             glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 640, 480, GL_RGBA, GL_UNSIGNED_BYTE, m_xfb_rgba.data());
-            glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
-            glBegin(GL_QUADS);
-            glTexCoord2f(0.0f, 1.0f); glVertex2f(-1.0f, -1.0f);
-            glTexCoord2f(1.0f, 1.0f); glVertex2f( 1.0f, -1.0f);
-            glTexCoord2f(1.0f, 0.0f); glVertex2f( 1.0f,  1.0f);
-            glTexCoord2f(0.0f, 0.0f); glVertex2f(-1.0f,  1.0f);
-            glEnd();
-            glDisable(GL_TEXTURE_2D);
+            draw_present_tex(m_xfb_tex, 1);
         } else if (m_draw_count == 0) {
             // Fondo táctico estilo MGS: The Twin Snakes (Codec / Radar) mientras inicializa XFB/GX
             glClearColor(0.03f, 0.07f, 0.06f, 1.0f);
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-            // Grilla táctica sutil
             glEnable(GL_BLEND);
-            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-            glColor4f(0.10f, 0.35f, 0.28f, 0.35f);
-            glBegin(GL_LINES);
-            for (int i = -9; i <= 9; ++i) {
-                float p = i * 0.1f;
-                glVertex2f(p, -1.0f); glVertex2f(p, 1.0f);
-                glVertex2f(-1.0f, p); glVertex2f(1.0f, p);
+            if (m_glBlendFuncSeparate) {
+                m_glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            } else {
+                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
             }
-            glEnd();
 
-            // Barra de progreso de subsistemas en la parte superior
-            float pulse = 0.5f + 0.5f * std::sin(static_cast<float>(frame_idx) * 0.1f);
-            glColor4f(0.15f, 0.75f * pulse + 0.2f, 0.55f, 0.85f);
-            glBegin(GL_QUADS);
-            glVertex2f(-0.92f, 0.82f);
-            glVertex2f(in_mgso_loop ? 0.92f : 0.25f, 0.82f);
-            glVertex2f(in_mgso_loop ? 0.92f : 0.25f, 0.88f);
-            glVertex2f(-0.92f, 0.88f);
-            glEnd();
+            float grid_verts[19u * 8u]{};
+            for (int i = -9; i <= 9; ++i) {
+                const float p = i * 0.1f;
+                const size_t base = static_cast<size_t>(i + 9) * 8u;
+                grid_verts[base + 0u] = p;     grid_verts[base + 1u] = -1.0f;
+                grid_verts[base + 2u] = p;     grid_verts[base + 3u] =  1.0f;
+                grid_verts[base + 4u] = -1.0f; grid_verts[base + 5u] = p;
+                grid_verts[base + 6u] =  1.0f; grid_verts[base + 7u] = p;
+            }
+            draw_hud_prims(GL_LINES, grid_verts, 19u * 4u, 0.10f, 0.35f, 0.28f, 0.35f);
+
+            const float pulse = 0.5f + 0.5f * std::sin(static_cast<float>(frame_idx) * 0.1f);
+            draw_hud_rect(-0.92f, 0.82f, in_mgso_loop ? 0.92f : 0.25f, 0.88f,
+                          0.15f, 0.75f * pulse + 0.2f, 0.55f, 0.85f);
             glDisable(GL_BLEND);
         }
 
         // 4. Overlay de Diagnóstico Táctico (HUD - Conmutable con tecla F1)
         if (show_debug_hud) {
             glEnable(GL_BLEND);
-            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            if (m_glBlendFuncSeparate) {
+                m_glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            } else {
+                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            }
 
             // Panel semi-transparente táctico en el borde inferior
-            glColor4f(0.01f, 0.06f, 0.04f, 0.82f);
-            glBegin(GL_QUADS);
-            glVertex2f(-0.98f, -0.98f);
-            glVertex2f( 0.98f, -0.98f);
-            glVertex2f( 0.98f, -0.80f);
-            glVertex2f(-0.98f, -0.80f);
-            glEnd();
+            draw_hud_rect(-0.98f, -0.98f, 0.98f, -0.80f, 0.01f, 0.06f, 0.04f, 0.82f);
 
             // Borde del panel
-            glColor4f(0.15f, 0.65f, 0.45f, 0.90f);
-            glLineWidth(1.5f);
-            glBegin(GL_LINE_LOOP);
-            glVertex2f(-0.98f, -0.98f);
-            glVertex2f( 0.98f, -0.98f);
-            glVertex2f( 0.98f, -0.80f);
-            glVertex2f(-0.98f, -0.80f);
-            glEnd();
+            const float border_verts[8] = {
+                -0.98f, -0.98f,
+                 0.98f, -0.98f,
+                 0.98f, -0.80f,
+                -0.98f, -0.80f
+            };
+            draw_hud_prims(GL_LINE_LOOP, border_verts, 4u, 0.15f, 0.65f, 0.45f, 0.90f);
 
             // Indicador de fuente activa
             if (xfb_valid) {
-                glColor4f(0.1f, 0.85f, 1.0f, 1.0f); // Cyan: XFB RAM
+                draw_hud_rect(-0.95f, -0.94f, -0.90f, -0.84f, 0.1f, 0.85f, 1.0f, 1.0f);
             } else if (m_efb_has_displayable_frame || m_has_drawn_in_efb) {
-                glColor4f(0.2f, 1.0f, 0.4f, 1.0f);  // Verde: EFB FBO
+                draw_hud_rect(-0.95f, -0.94f, -0.90f, -0.84f, 0.2f, 1.0f, 0.4f, 1.0f);
             } else {
-                glColor4f(1.0f, 0.75f, 0.1f, 1.0f); // Amarillo: Standby
+                draw_hud_rect(-0.95f, -0.94f, -0.90f, -0.84f, 1.0f, 0.75f, 0.1f, 1.0f);
             }
-            glBegin(GL_QUADS);
-            glVertex2f(-0.95f, -0.84f);
-            glVertex2f(-0.90f, -0.84f);
-            glVertex2f(-0.90f, -0.94f);
-            glVertex2f(-0.95f, -0.94f);
-            glEnd();
 
             // Barra visual de actividad geométrica
             float activity_len = 0.05f;
             if (m_vertex_count > 0) {
                 activity_len = std::min(1.75f, 0.05f + static_cast<float>(m_vertex_count % 100000) / 100000.0f * 1.70f);
             }
-            glColor4f(0.15f, 0.70f, 0.50f, 0.75f);
-            glBegin(GL_QUADS);
-            glVertex2f(-0.88f, -0.86f);
-            glVertex2f(-0.88f + activity_len, -0.86f);
-            glVertex2f(-0.88f + activity_len, -0.92f);
-            glVertex2f(-0.88f, -0.92f);
-            glEnd();
+            draw_hud_rect(-0.88f, -0.92f, -0.88f + activity_len, -0.86f, 0.15f, 0.70f, 0.50f, 0.75f);
 
             glDisable(GL_BLEND);
         }
@@ -1997,6 +3273,10 @@ public:
     bool IsXfbActive() const { return m_last_xfb_valid; }
     bool HasEfbFrame() const { return m_efb_has_displayable_frame || m_has_drawn_in_efb; }
     void SetAuditDolphinShaders(bool enable) { m_audit_dolphin_shaders = enable; }
+    void SetUseDolphinPipeline(bool enable) { m_use_dolphin_pipeline = enable; }
+    bool IsUsingDolphinPipeline() const { return m_use_dolphin_pipeline; }
+    std::uint64_t GetDolphinShaderErrorCount() const { return m_dolphin_shader_errors; }
+    std::size_t GetDolphinProgramCount() const { return m_dolphin_prog_cache.size(); }
     bool HasNewContentToPresent() const {
         return (m_draw_count > m_last_presented_draws) ||
                (m_efb_copy_count > m_last_presented_efb_copies) ||
@@ -2015,6 +3295,8 @@ public:
         m_last_presented_draws = m_draw_count;
         m_last_presented_efb_copies = m_efb_copy_count;
         m_new_video_frame_captured = false;
+        m_xfb_copied_this_frame = false;
+        m_video_frame_captured = false;
     }
 
     bool SaveEfbToBmp(const char* filepath) {
@@ -2059,6 +3341,38 @@ private:
         float uv[8][3];
     };
 
+    struct DolphinGpuVertex {
+        float pos[3];
+        uint32_t posmtx;
+        float nrm[3];
+        float tan[3];
+        float binrm[3];
+        uint32_t col0;
+        uint32_t col1;
+        float uv[8][3];
+    };
+
+    static inline uint32_t ByteSwap32(uint32_t v) {
+        return (v >> 24) | ((v >> 8) & 0xFF00u) | ((v & 0xFF00u) << 8) | (v << 24);
+    }
+
+    struct DolphinProgramKey {
+        uint64_t vertex_uid = 0;
+        uint64_t pixel_uid = 0;
+        bool operator==(const DolphinProgramKey&) const = default;
+    };
+
+    struct DolphinProgramKeyHash {
+        size_t operator()(const DolphinProgramKey& k) const noexcept {
+            uint64_t h = 14695981039346656037ull;
+            h ^= k.vertex_uid;
+            h *= 1099511628211ull;
+            h ^= k.pixel_uid;
+            h *= 1099511628211ull;
+            return static_cast<size_t>(h);
+        }
+    };
+
 #if defined(_WIN32)
     struct EfbTexEntry {
         GLuint gl_tex = 0;
@@ -2067,6 +3381,7 @@ private:
         int tex_mode = 0; // 0=RGBA, 1=RGB1, 2=IIII, 3=IIIA
         uint64_t ram_snapshot_hash = 0;
         uint32_t last_mode0 = 0xFFFFFFFFu;
+        int last_tex_mode = -1;
         bool valid = false;
     };
 
@@ -2103,6 +3418,7 @@ private:
         bool uploaded = false;
         uint32_t last_frame_checked = 0;
         uint32_t last_mode0 = 0xFFFFFFFFu;
+        int last_tex_mode = -1;
     };
 
     struct TevShaderKey {
@@ -2181,7 +3497,19 @@ private:
         return h;
     }
 
-    static void ApplyGxSamplerParams(uint32_t mode0) {
+    static void ApplyGxTextureSwizzle(int tex_mode) {
+        static constexpr GLint kSwzRgba[4] = {GL_RED, GL_GREEN, GL_BLUE, GL_ALPHA};
+        static constexpr GLint kSwzRgb1[4] = {GL_RED, GL_GREEN, GL_BLUE, GL_ONE};
+        static constexpr GLint kSwzIiii[4] = {GL_RED, GL_RED, GL_RED, GL_RED};
+        static constexpr GLint kSwzIiia[4] = {GL_RED, GL_RED, GL_RED, GL_ALPHA};
+        const GLint* swz = kSwzRgba;
+        if (tex_mode == 1) swz = kSwzRgb1;
+        else if (tex_mode == 2) swz = kSwzIiii;
+        else if (tex_mode == 3) swz = kSwzIiia;
+        glTexParameteriv(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_SWIZZLE_RGBA, swz);
+    }
+
+    static void ApplyGxSamplerParams(uint32_t mode0, int tex_mode) {
         static const GLint gl_wraps[4] = {
             GL_CLAMP_TO_EDGE, GL_REPEAT, GL_MIRRORED_REPEAT, GL_CLAMP_TO_EDGE
         };
@@ -2190,10 +3518,11 @@ private:
         const bool mag_linear = ((mode0 >> 4) & 1u) != 0u;
         // En TexMode0: min_filter bit 7 (FilterMode: Near=0, Linear=1)
         const bool min_linear = ((mode0 >> 7) & 1u) != 0u;
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, gl_wraps[wrap_s]);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, gl_wraps[wrap_t]);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, mag_linear ? GL_LINEAR : GL_NEAREST);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, min_linear ? GL_LINEAR : GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, gl_wraps[wrap_s]);
+        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, gl_wraps[wrap_t]);
+        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, mag_linear ? GL_LINEAR : GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, min_linear ? GL_LINEAR : GL_NEAREST);
+        ApplyGxTextureSwizzle(tex_mode);
     }
 
     static inline uint64_t ComputeFastContentHash(const uint8_t* ptr, size_t size) {
@@ -2282,15 +3611,17 @@ private:
             auto efb_it = m_efb_textures.find(phys_addr);
             if (efb_it != m_efb_textures.end() && efb_it->second.valid && efb_it->second.gl_tex != 0) {
                 if (SampleRamSignature(phys_addr) == efb_it->second.ram_snapshot_hash) {
-                    if (efb_it->second.last_mode0 != tex_desc.mode0) {
+                    if (efb_it->second.last_mode0 != tex_desc.mode0 ||
+                        efb_it->second.last_tex_mode != efb_it->second.tex_mode) {
                         FlushPendingBatch();
                         if (m_glActiveTexture && m_active_tex_unit != st) {
                             m_glActiveTexture(GL_TEXTURE0 + st);
                             m_active_tex_unit = st;
                         }
-                        glBindTexture(GL_TEXTURE_2D, efb_it->second.gl_tex);
-                        ApplyGxSamplerParams(tex_desc.mode0);
+                        glBindTexture(GL_TEXTURE_2D_ARRAY, efb_it->second.gl_tex);
+                        ApplyGxSamplerParams(tex_desc.mode0, efb_it->second.tex_mode);
                         efb_it->second.last_mode0 = tex_desc.mode0;
+                        efb_it->second.last_tex_mode = efb_it->second.tex_mode;
                         m_bound_tex[st] = efb_it->second.gl_tex;
                     }
                     *out_mode = efb_it->second.tex_mode;
@@ -2374,16 +3705,17 @@ private:
         auto it = m_ram_textures.find(key);
         if (it != m_ram_textures.end() && it->second.uploaded) {
             if (it->second.last_frame_checked == m_current_frame) {
-                if (it->second.last_mode0 != tex_desc.mode0) {
+                if (it->second.last_mode0 != tex_desc.mode0 || it->second.last_tex_mode != tex_mode) {
                     FlushPendingBatch();
                     const uint32_t tex_u = stage & 7u;
                     if (m_glActiveTexture && m_active_tex_unit != tex_u) {
                         m_glActiveTexture(GL_TEXTURE0 + tex_u);
                         m_active_tex_unit = tex_u;
                     }
-                    glBindTexture(GL_TEXTURE_2D, it->second.gl_tex);
-                    ApplyGxSamplerParams(tex_desc.mode0);
+                    glBindTexture(GL_TEXTURE_2D_ARRAY, it->second.gl_tex);
+                    ApplyGxSamplerParams(tex_desc.mode0, tex_mode);
                     it->second.last_mode0 = tex_desc.mode0;
+                    it->second.last_tex_mode = tex_mode;
                     m_bound_tex[tex_u] = it->second.gl_tex;
                 }
                 if (!is_linear_yuv) {
@@ -2400,15 +3732,16 @@ private:
 
                 if (it->second.content_hash == content_hash && it->second.tlut_hash == tlut_hash) {
                     it->second.last_frame_checked = m_current_frame;
-                    if (it->second.last_mode0 != tex_desc.mode0) {
+                    if (it->second.last_mode0 != tex_desc.mode0 || it->second.last_tex_mode != tex_mode) {
                         FlushPendingBatch();
                         if (m_glActiveTexture && m_active_tex_unit != st) {
                             m_glActiveTexture(GL_TEXTURE0 + st);
                             m_active_tex_unit = st;
                         }
-                        glBindTexture(GL_TEXTURE_2D, it->second.gl_tex);
-                        ApplyGxSamplerParams(tex_desc.mode0);
+                        glBindTexture(GL_TEXTURE_2D_ARRAY, it->second.gl_tex);
+                        ApplyGxSamplerParams(tex_desc.mode0, tex_mode);
                         it->second.last_mode0 = tex_desc.mode0;
+                        it->second.last_tex_mode = tex_mode;
                         m_bound_tex[st] = it->second.gl_tex;
                     }
                     st_cache = {m_current_frame, state.tmem_generation, raw_mode0, raw_img0, raw_tmem, raw_addr, raw_tlut,
@@ -2470,19 +3803,23 @@ private:
         if (entry.gl_tex == 0) {
             glGenTextures(1, &entry.gl_tex);
         }
-        glBindTexture(GL_TEXTURE_2D, entry.gl_tex);
+        glBindTexture(GL_TEXTURE_2D_ARRAY, entry.gl_tex);
         m_bound_tex[st] = entry.gl_tex;
         glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
-        if (!entry.uploaded) {
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8,
-                         static_cast<GLsizei>(decoded_tex.width),
-                         static_cast<GLsizei>(decoded_tex.height),
-                         0, GL_RGBA, GL_UNSIGNED_INT_8_8_8_8, decoded_tex.rgba8.data());
-        } else {
-            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0,
-                            static_cast<GLsizei>(decoded_tex.width),
-                            static_cast<GLsizei>(decoded_tex.height),
-                            GL_RGBA, GL_UNSIGNED_INT_8_8_8_8, decoded_tex.rgba8.data());
+        const bool first_upload = !entry.uploaded;
+        if (first_upload) {
+            glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAX_LEVEL, 0);
+            if (m_glTexImage3D) {
+                m_glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_RGBA8,
+                               static_cast<GLsizei>(decoded_tex.width),
+                               static_cast<GLsizei>(decoded_tex.height),
+                               1, 0, GL_RGBA, GL_UNSIGNED_INT_8_8_8_8, decoded_tex.rgba8.data());
+            }
+        } else if (m_glTexSubImage3D) {
+            m_glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, 0,
+                              static_cast<GLsizei>(decoded_tex.width),
+                              static_cast<GLsizei>(decoded_tex.height),
+                              1, GL_RGBA, GL_UNSIGNED_INT_8_8_8_8, decoded_tex.rgba8.data());
         }
         entry.content_hash = content_hash;
         entry.tlut_hash = tlut_hash;
@@ -2491,9 +3828,10 @@ private:
         entry.last_frame_checked = m_current_frame;
         ++m_decoded_texture_count;
 
-        if (entry.last_mode0 != tex_desc.mode0) {
-            ApplyGxSamplerParams(tex_desc.mode0);
+        if (first_upload || entry.last_mode0 != tex_desc.mode0 || entry.last_tex_mode != tex_mode) {
+            ApplyGxSamplerParams(tex_desc.mode0, tex_mode);
             entry.last_mode0 = tex_desc.mode0;
+            entry.last_tex_mode = tex_mode;
         }
         return entry.gl_tex;
     }
@@ -3138,7 +4476,7 @@ private:
             return;
         }
         static const char* vs_src =
-            "#version 330 compatibility\n"
+            "#version 450 core\n"
             "in vec4 a_pos;\n"
             "in vec4 a_col0;\n"
             "in vec4 a_col1;\n"
@@ -3255,7 +4593,7 @@ private:
 
         std::string fs;
         fs.reserve(4096);
-        fs += "#version 330 compatibility\n"
+        fs += "#version 450 core\n"
               "in vec4 v_col0;\n"
               "in vec4 v_col1;\n"
               "in vec3 v_uv0;\n"
@@ -3266,7 +4604,7 @@ private:
               "in vec3 v_uv5;\n"
               "in vec3 v_uv6;\n"
               "in vec3 v_uv7;\n"
-              "uniform sampler2D u_tex[8];\n"
+              "uniform sampler2DArray u_tex[8];\n"
               "uniform vec4 u_tev_reg[4];\n"
               "uniform vec4 u_konst[4];\n"
               "uniform vec4 u_tex_inv_wh[8];\n"
@@ -3275,10 +4613,10 @@ private:
               "uniform vec2 u_alpha_ref;\n"
               "uniform vec2 u_const_alpha;\n"
               "out vec4 o_color;\n\n"
-              "ivec4 sample_gx_tex(sampler2D s, int tm, vec3 stq, int tc) {\n"
+              "ivec4 sample_gx_tex(sampler2DArray s, int tm, vec3 stq, int tc) {\n"
               "    vec2 proj_uv = (abs(stq.z) > 1e-7) ? (stq.xy / stq.z) : clamp(stq.xy * 0.5, vec2(-1.0), vec2(1.0));\n"
               "    vec2 uv = proj_uv * u_su_scale[tc].xy * u_tex_inv_wh[tm].xy;\n"
-              "    ivec4 c = ivec4(round(clamp(texture(s, uv), 0.0, 1.0) * 255.0));\n"
+              "    ivec4 c = ivec4(round(clamp(texture(s, vec3(uv, 0.0)), 0.0, 1.0) * 255.0));\n"
               "    int m = u_tex_mode[tm];\n"
               "    if (m == 1) c.a = 255;\n"
               "    else if (m == 2) c = ivec4(c.r);\n"
@@ -3596,7 +4934,26 @@ private:
         return m_last_tev_prog;
     }
 
+    void FlushDolphinBatch() {
+        if (!m_dolphin_batch_active) {
+            return;
+        }
+        m_dolphin_batch_active = false;
+        if (m_dolphin_batch_ebo_count > 0 && m_glDrawElementsBaseVertex) {
+            if (g_perf.enabled) {
+                ++g_perf.gl_draw_calls;
+            }
+            m_glDrawElementsBaseVertex(GL_TRIANGLES,
+                                       static_cast<GLsizei>(m_dolphin_batch_ebo_count),
+                                       GL_UNSIGNED_INT,
+                                       reinterpret_cast<const void*>(m_dolphin_batch_ebo_start * sizeof(uint32_t)),
+                                       static_cast<GLint>(m_dolphin_batch_vbo_base));
+        }
+        m_dolphin_batch_ebo_count = 0;
+    }
+
     void FlushPendingBatch() {
+        FlushDolphinBatch();
         if (!m_batch_active) {
             return;
         }
@@ -3616,24 +4973,34 @@ private:
 
     void InvalidateGlStateCache() {
         FlushPendingBatch();
-        if (m_vbo_attribs_bound) {
-            for (GLuint a = 0; a < 11u; ++a) {
-                if (m_glDisableVertexAttribArray) {
-                    m_glDisableVertexAttribArray(a);
-                }
-            }
-            if (m_glBindBuffer) {
-                m_glBindBuffer(GL_ARRAY_BUFFER, 0);
-                m_glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
-            }
-            m_vbo_attribs_bound = false;
+        if (m_glBindBuffer) {
+            m_glBindBuffer(GL_ARRAY_BUFFER, 0);
         }
-        if (m_last_tev_prog != nullptr && m_glUseProgram) {
+        if (m_glBindVertexArray) {
+            m_glBindVertexArray(0);
+        }
+        m_vbo_attribs_bound = false;
+        m_dolphin_vao_bound = false;
+        m_dolphin_state_valid = false;
+        m_d_pstate_valid = false;
+        m_d_prog_valid = false;
+        m_d_texmask_valid = false;
+        m_d_texres_valid = false;
+        m_ubos_bound = false;
+        if ((m_last_tev_prog != nullptr || m_current_program != 0) && m_glUseProgram) {
             m_glUseProgram(0);
         }
         if (m_glActiveTexture) {
             m_glActiveTexture(GL_TEXTURE0);
         }
+        if (m_dolphin_clip_enabled) {
+            glDisable(GL_CLIP_DISTANCE0);
+            glDisable(GL_CLIP_DISTANCE1);
+            glDisable(GL_DEPTH_CLAMP);
+            m_dolphin_clip_enabled = false;
+        }
+        glFrontFace(GL_CW);
+        glCullFace(GL_BACK);
         glDisable(GL_COLOR_LOGIC_OP);
         glDisable(GL_SCISSOR_TEST);
         glDisable(GL_CULL_FACE);
@@ -3651,6 +5018,11 @@ private:
         m_vp_cache_valid = false;
         m_cached_vp_sc_off = 0xFFFFFFFFu;
         m_sc_cache_valid = false;
+        m_sc_enabled = false;
+        m_sc_x = -1;
+        m_sc_y = -1;
+        m_sc_w = -1;
+        m_sc_h = -1;
         m_cached_cull = 0xFFFFFFFFu;
         m_cached_zmode = 0xFFFFFFFFu;
         m_cached_blend_key = 0xFFFFFFFFu;
@@ -3702,6 +5074,7 @@ private:
     double m_last_depth_f = 0.0;
     bool m_has_drawn_in_efb = false;
     uint32_t m_draws_since_clear = 0;
+    uint32_t m_zero_draw_xfb_streak = 0;
     bool m_efb_has_displayable_frame = false;
     bool m_video_frame_captured = false;
     bool m_new_video_frame_captured = false;
@@ -3733,8 +5106,11 @@ private:
     uint32_t m_active_tex_unit = 0xFFFFFFFFu;
     bool m_bound_efb_fbo = false;
     bool m_vbo_attribs_bound = false;
+    bool m_vao_configured = false;
+    bool m_use_dolphin_pipeline = true;
     static constexpr size_t VBO_Q_VERTS = 110000;
     static constexpr size_t EBO_Q_IDXS = 1048576;
+    static constexpr size_t DOLPHIN_VBO_Q_VERTS = 110000;
     size_t m_vbo_cursor_vtx = 0;
     size_t m_ebo_cursor_idx = 0;
     size_t m_vbo_max_verts = 0;
@@ -3743,6 +5119,79 @@ private:
     uint8_t* m_ebo_mapped = nullptr;
     std::array<GLsync, 4> m_vbo_fences{};
     std::array<GLsync, 4> m_ebo_fences{};
+    GLuint m_dolphin_vao = 0;
+    GLuint m_dolphin_vbo = 0;
+    GLsizeiptr m_dolphin_vbo_capacity = 0;
+    uint8_t* m_dolphin_vbo_mapped = nullptr;
+    size_t m_dolphin_vbo_cursor = 0;
+    size_t m_dolphin_vbo_max_verts = 0;
+    std::array<GLsync, 4> m_dolphin_vbo_fences{};
+    std::vector<DolphinGpuVertex> m_dolphin_cpu_batch;
+    GLuint m_vs_ubo = 0;
+    GLuint m_ps_ubo = 0;
+    std::vector<std::uint8_t> m_vs_ubo_cpu;
+    std::vector<std::uint8_t> m_ps_ubo_cpu;
+    std::vector<std::uint8_t> m_last_vs_ubo;
+    std::vector<std::uint8_t> m_last_ps_ubo;
+    bool m_vs_ubo_valid = false;
+    bool m_ps_ubo_valid = false;
+    GLsizeiptr m_vs_ubo_cap = 0;
+    GLsizeiptr m_ps_ubo_cap = 0;
+    std::unordered_map<uint64_t, GLuint> m_dolphin_vs_cache;
+    std::unordered_map<uint64_t, GLuint> m_dolphin_ps_cache;
+    std::unordered_map<DolphinProgramKey, GLuint, DolphinProgramKeyHash> m_dolphin_prog_cache;
+    std::uint64_t m_dolphin_shader_errors = 0;
+    bool m_dolphin_vao_bound = false;
+    bool m_dolphin_clip_enabled = false;
+    bool m_dolphin_state_valid = false;
+    bool m_ubos_bound = false;
+    moderngekko::DolphinPipelineState m_last_dolphin_pstate{};
+    bool m_d_pstate_valid = false;
+    uint64_t m_d_pstate_bp_gen = 0;
+    uint64_t m_d_pstate_vp_gen = 0;
+    moderngekko::GxTopology m_d_pstate_topo = moderngekko::GxTopology::Triangles;
+    moderngekko::DolphinPipelineState m_d_pstate_cached{};
+    bool m_d_prog_valid = false;
+    uint64_t m_d_prog_cp_gen = 0;
+    uint64_t m_d_prog_vs_gen = 0;
+    uint64_t m_d_prog_ps_gen = 0;
+    uint8_t m_d_prog_vat = 0xFFu;
+    GLuint m_d_prog_cached = 0;
+    bool m_d_texmask_valid = false;
+    uint64_t m_d_texmask_gen = 0;
+    uint32_t m_d_texmask_cached = 0;
+    bool m_d_texres_valid = false;
+    uint64_t m_d_texres_bp_gen = 0;
+    uint64_t m_d_texres_tmem_gen = 0;
+    uint32_t m_d_texres_mask = 0;
+    uint32_t m_d_texres_frame = 0;
+    std::array<GLuint, 8> m_d_stage_gl_tex{};
+    std::array<uint32_t, 8> m_d_tex_w = {1u, 1u, 1u, 1u, 1u, 1u, 1u, 1u};
+    std::array<uint32_t, 8> m_d_tex_h = {1u, 1u, 1u, 1u, 1u, 1u, 1u, 1u};
+    bool m_d_vs_ubo_valid = false;
+    uint64_t m_d_vs_xf_gen = 0;
+    uint64_t m_d_vs_cp_gen = 0;
+    uint64_t m_d_vs_bp_pipe_gen = 0;
+    uint8_t m_d_vs_vat = 0xFFu;
+    int m_d_vs_disp_w = 0;
+    int m_d_vs_disp_h = 0;
+    bool m_d_ps_ubo_valid = false;
+    uint64_t m_d_ps_bp_gen = 0;
+    uint64_t m_d_ps_col_gen = 0;
+    uint64_t m_d_ps_tex_gen = 0;
+    uint64_t m_d_ps_tev_gen = 0;
+    uint64_t m_d_ps_vp_gen = 0;
+    int m_d_ps_disp_w = 0;
+    int m_d_ps_disp_h = 0;
+    std::array<uint32_t, 8> m_d_ps_tex_w{};
+    std::array<uint32_t, 8> m_d_ps_tex_h{};
+    GLuint m_present_prog = 0;
+    GLuint m_present_vao = 0;
+    GLint m_present_flip_loc = -1;
+    GLuint m_hud_prog = 0;
+    GLuint m_hud_vao = 0;
+    GLuint m_hud_vbo = 0;
+    GLint m_hud_color_loc = -1;
     bool m_vp_cache_valid = false;
     uint32_t m_cached_xf_vp[6]{};
     uint32_t m_cached_vp_sc_off = 0xFFFFFFFFu;
@@ -3789,6 +5238,40 @@ private:
     uint64_t m_batch_tev_col_gen = 0;
     uint32_t m_batch_alpha_cmp16 = 0;
     uint32_t m_batch_const_alpha9 = 0;
+
+    // Loteo dinámico para pipeline DolphinVideo
+    bool m_dolphin_batch_active = false;
+    size_t m_dolphin_batch_vbo_base = 0;
+    size_t m_dolphin_batch_ebo_start = 0;
+    size_t m_dolphin_batch_ebo_count = 0;
+    GLuint m_dolphin_batch_prog = 0;
+    moderngekko::DolphinPipelineState m_dolphin_batch_pstate{};
+    GLint m_dolphin_batch_vp_x = 0, m_dolphin_batch_vp_y = 0;
+    GLsizei m_dolphin_batch_vp_w = 0, m_dolphin_batch_vp_h = 0;
+    double m_dolphin_batch_depth_n = 1.0, m_dolphin_batch_depth_f = 0.0;
+    bool m_dolphin_batch_sc_enabled = false;
+    int m_dolphin_batch_sc_x = 0, m_dolphin_batch_sc_y = 0, m_dolphin_batch_sc_w = 0, m_dolphin_batch_sc_h = 0;
+
+    static bool DolphinPipelineStateEquals(const moderngekko::DolphinPipelineState& a,
+                                         const moderngekko::DolphinPipelineState& b) {
+        return a.blend_enable == b.blend_enable &&
+               a.subtract == b.subtract &&
+               a.subtract_alpha == b.subtract_alpha &&
+               a.use_dual_src == b.use_dual_src &&
+               a.src_factor == b.src_factor &&
+               a.dst_factor == b.dst_factor &&
+               a.src_factor_alpha == b.src_factor_alpha &&
+               a.dst_factor_alpha == b.dst_factor_alpha &&
+               a.logic_op_enable == b.logic_op_enable &&
+               a.logic_mode == b.logic_mode &&
+               a.color_update == b.color_update &&
+               a.alpha_update == b.alpha_update &&
+               a.depth_test == b.depth_test &&
+               a.depth_update == b.depth_update &&
+               a.depth_func == b.depth_func &&
+               a.cull_mode == b.cull_mode &&
+               a.use_vertex_depth_range == b.use_vertex_depth_range;
+    }
 
     GLuint m_xfb_tex = 0;
     GLuint m_dummy_white_tex = 0;
@@ -3856,6 +5339,15 @@ private:
     PFNGLDELETERENDERBUFFERSPROC m_glDeleteRenderbuffers = nullptr;
     PFNGLBLITFRAMEBUFFERPROC m_glBlitFramebuffer = nullptr;
     PFNGLCLIPCONTROLPROC m_glClipControl = nullptr;
+    GLuint m_vao = 0;
+    PFNGLGENVERTEXARRAYSPROC m_glGenVertexArrays = nullptr;
+    PFNGLBINDVERTEXARRAYPROC m_glBindVertexArray = nullptr;
+    PFNGLDELETEVERTEXARRAYSPROC m_glDeleteVertexArrays = nullptr;
+    PFNGLTEXIMAGE3DPROC m_glTexImage3D = nullptr;
+    PFNGLTEXSUBIMAGE3DPROC m_glTexSubImage3D = nullptr;
+    PFNGLFRAMEBUFFERTEXTURELAYERPROC m_glFramebufferTextureLayer = nullptr;
+    PFNGLBINDBUFFERBASEPROC m_glBindBufferBase = nullptr;
+    PFNGLVERTEXATTRIBIPOINTERPROC m_glVertexAttribIPointer = nullptr;
 #endif
 };
 
@@ -3985,6 +5477,10 @@ struct GfxRuntimeContext {
     u32 vi_xfb_address = 0;
     u32 frame_count = 0;
     u32 max_frames = 0;
+    double max_seconds = 0.0;
+    std::chrono::steady_clock::time_point run_start_time{};
+    bool timed_out = false;
+    bool in_audio_cleanup = false;
     bool window_closed = false;
 
     // QoL: Relación de aspecto, pantalla completa, VSync y limitador de fotogramas
@@ -4031,6 +5527,13 @@ struct GfxRuntimeContext {
     double audio_stream_accum_ms = 0.0;
     u32  audio_stream_last_ms = 0;
     u32  consumer_drain_last_frame = 0;
+    u32  audio_child_actor = 0;
+    u32  audio_child_last_frame = 0;
+    u32  audio_child_last_queued = 0;
+    double audio_child_byte_rem = 0.0;
+    u32  stream_ready_poll_vid = 0;
+    u32  stream_ready_poll_start_frame = 0;
+    u32  stream_ready_poll_last_frame = 0;
     u32  voice_idle_polls = 0;
     u32  voice_poll_last_id = 0;
     u32  voice_poll_same_count = 0;
@@ -4534,8 +6037,8 @@ public:
             data[base + 0x03] = static_cast<u8>(binv & 0xFF);
         }
 
+        modified = true;
         save_to_disk();
-        modified = false;
     }
 
     bool init(const std::string& path) {
@@ -4564,6 +6067,12 @@ public:
             out.flush();
             modified = false;
             std::printf("[MEMCARD] Partida guardada en disco: \"%s\" (2,097,152 bytes)\n", file_path.c_str());
+        }
+    }
+
+    void save_if_dirty() {
+        if (modified) {
+            save_to_disk();
         }
     }
 
@@ -4645,6 +6154,7 @@ public:
                     data[base + 0x1FFE] = static_cast<u8>(dinv >> 8);
                     data[base + 0x1FFF] = static_cast<u8>(dinv & 0xFF);
                 }
+                modified = true;
                 save_to_disk();
             }
         }
@@ -4732,6 +6242,7 @@ public:
             mem_write16(cpu, finfoPtr + 0x12u, 0u);
         }
 
+        modified = true;
         save_to_disk();
         return 0;
     }
@@ -4786,6 +6297,7 @@ public:
         u8* src = resolve_guest_ptr(cpu, bufPtr, len);
         if (src) {
             std::memcpy(data.data() + dst_pos, src, len);
+            modified = true;
             save_to_disk();
         }
         return 0;
@@ -4834,6 +6346,7 @@ public:
                         data[base + 0x1FFE] = static_cast<u8>(dinv >> 8);
                         data[base + 0x1FFF] = static_cast<u8>(dinv & 0xFF);
                     }
+                    modified = true;
                     save_to_disk();
                     return 0;
                 }
@@ -4991,6 +6504,22 @@ static void present_frame(CPUState* cpu, GfxRuntimeContext* rctx) {
         QueryPerformanceCounter(&pre_swap_qpc);
         SwapBuffers(rctx->hdc);
         QueryPerformanceCounter(&post_swap_qpc);
+        if (rctx->frame_count == 100u) {
+            bool any_gl_err = false;
+            for (int ei = 0; ei < 16; ++ei) {
+                const GLenum gl_err = glGetError();
+                if (gl_err == GL_NO_ERROR) break;
+                any_gl_err = true;
+                std::fprintf(stderr, "[GFX-GL-ERR] Frame 100: 0x%X\n", static_cast<unsigned>(gl_err));
+            }
+            if (!any_gl_err) {
+                std::printf("[GFX-GL-OK] Frame 100: GL_NO_ERROR (DolphinShaders=%zu, Errors=%llu)\n",
+                            rctx->render_device ? rctx->render_device->GetDolphinProgramCount() : 0u,
+                            rctx->render_device ? static_cast<unsigned long long>(rctx->render_device->GetDolphinShaderErrorCount()) : 0ULL);
+            }
+            std::fflush(stdout);
+            std::fflush(stderr);
+        }
         if (g_perf.enabled) {
             g_perf.present_qpc += static_cast<uint64_t>(post_swap_qpc.QuadPart - prof_pres_t0.QuadPart);
             ++g_perf.frames;
@@ -5376,7 +6905,7 @@ static void write_journal_cb(u32 offset, u32 size, void* user) {
 
 static constexpr auto kHookedAddrs = std::to_array<u32>({
     0x7F0080ECu, 0x7F008174u, 0x7F008210u, 0x7F00A248u, 0x7F00A430u, 0x7F00A8E0u, 0x7F00A968u, 0x7F017838u,
-    0x7F017934u, 0x7F017DC4u, 0x7F017E90u, 0x7F0185C0u, 0x7F0186ECu, 0x7F01893Cu, 0x7F0FCF70u, 0x7F0FD7BCu, 0x7F0FD818u,
+    0x7F017934u, 0x7F017DC4u, 0x7F017E90u, 0x7F0185C0u, 0x7F01893Cu, 0x7F0FCF70u, 0x7F0FD7BCu, 0x7F0FD818u,
     0x7F0FE400u, 0x7F0FEAC4u, 0x7F18EE3Cu, 0x7F1905F8u, 0x7F19065Cu, 0x7F28100Cu, 0x7F281650u, 0x7F290DCCu, 0x7F292570u,
     0x7F292C72u, 0x7F29E874u, 0x7F29F4E0u, 0x7F2A0A18u, 0x7F2A1A70u, 0x7F2A1FD8u, 0x7F2A528Cu, 0x7F2DD09Cu,
     0x7F2DD7D8u, 0x7F2DD7ECu, 0x7F2DD844u, 0x7F2DD89Cu, 0x7F2DD8F8u, 0x7F2DD968u, 0x7F2DDA74u, 0x7F2DDBD4u,
@@ -5396,7 +6925,7 @@ static constexpr auto kHookedAddrs = std::to_array<u32>({
     0x8003E570u, 0x8003E8A0u, 0x8003E9E4u, 0x8003ED60u, 0x8003EF5Cu, 0x8003F19Cu, 0x8003F668u, 0x8003F6B0u,
     0x8003FA24u, 0x80042974u, 0x800429C0u, 0x80043744u, 0x80046420u, 0x80046538u, 0x80046600u, 0x800468B8u,
     0x80046A30u, 0x80046C74u, 0x80046D04u, 0x8004B18Cu, 0x8004B8A8u, 0x8004C2F0u, 0x8004C388u, 0x8004DBACu,
-    0x8004F270u, 0x8004F318u, 0x800501FCu, 0x80050B54u, 0x80051688u, 0x80051AF0u, 0x80051BB0u, 0x80051D14u,
+    0x8004F270u, 0x8004F318u, 0x800501FCu, 0x80050B54u, 0x80051AA0u, 0x80051AF0u, 0x80051BB0u, 0x80051D14u,
     0x80054EC8u, 0x800569D8u, 0x800569E4u, 0x800569F4u, 0x80056BDCu
 });
 static constexpr std::array<u64, 64> kHostHookBloom = []() {
@@ -5423,21 +6952,25 @@ static bool host_call_hook(CPUState* cpu, u32 address) {
         restore_canonical_audio_rodata(cpu);
         static int f318_cnt = 0;
         ++f318_cnt;
-        std::printf("[TRACE-F318] #%d called from LR=0x%08X SP=0x%08X r3=0x%08X r4=0x%08X\n",
-                    f318_cnt, cpu->lr, cpu->gpr[1], cpu->gpr[3], cpu->gpr[4]);
-        std::printf("  fmt_spd='%s' (0x%08X) fmt_spt='%s' (0x%08X) fmt_slash='%s' (0x%08X) shared='%s' (0x%08X)\n",
-                    read_guest_cstring(cpu, 0x8006319Cu).c_str(), 0x8006319Cu,
-                    read_guest_cstring(cpu, 0x800631B8u).c_str(), 0x800631B8u,
-                    read_guest_cstring(cpu, 0x8006318Cu).c_str(), 0x8006318Cu,
-                    read_guest_cstring(cpu, 0x80063194u).c_str(), 0x80063194u);
+        if (rctx->verbose_logging) {
+            std::printf("[TRACE-F318] #%d called from LR=0x%08X SP=0x%08X r3=0x%08X r4=0x%08X\n",
+                        f318_cnt, cpu->lr, cpu->gpr[1], cpu->gpr[3], cpu->gpr[4]);
+            std::printf("  fmt_spd='%s' (0x%08X) fmt_spt='%s' (0x%08X) fmt_slash='%s' (0x%08X) shared='%s' (0x%08X)\n",
+                        read_guest_cstring(cpu, 0x8006319Cu).c_str(), 0x8006319Cu,
+                        read_guest_cstring(cpu, 0x800631B8u).c_str(), 0x800631B8u,
+                        read_guest_cstring(cpu, 0x8006318Cu).c_str(), 0x8006318Cu,
+                        read_guest_cstring(cpu, 0x80063194u).c_str(), 0x80063194u);
+        }
         return false;
     }
 
     if (address == 0x8004F270u) {
         restore_canonical_audio_rodata(cpu);
-        std::string pstr = read_guest_cstring(cpu, cpu->gpr[3]);
-        std::printf("[TRACE-F270] called from LR=0x%08X SP=0x%08X r3=0x%08X str='%s' r4=%u\n",
-                    cpu->lr, cpu->gpr[1], cpu->gpr[3], pstr.c_str(), cpu->gpr[4]);
+        if (rctx->verbose_logging) {
+            std::string pstr = read_guest_cstring(cpu, cpu->gpr[3]);
+            std::printf("[TRACE-F270] called from LR=0x%08X SP=0x%08X r3=0x%08X str='%s' r4=%u\n",
+                        cpu->lr, cpu->gpr[1], cpu->gpr[3], pstr.c_str(), cpu->gpr[4]);
+        }
         return false;
     }
 
@@ -5446,12 +6979,14 @@ static bool host_call_hook(CPUState* cpu, u32 address) {
         if (cpu->lr == 0x8004F3BCu || cpu->lr == 0x8004F414u || cpu->lr == 0x8004F2C4u) {
             restore_canonical_audio_rodata(cpu);
         }
-        static int spr_cnt = 0;
-        ++spr_cnt;
-        std::string fmt = read_guest_cstring(cpu, cpu->gpr[4]);
-        if (cpu->lr == 0x8004F3BCu || cpu->lr == 0x8004F414u || cpu->lr == 0x8004F2C4u || spr_cnt <= 10) {
-            std::printf("[TRACE-SPRINTF] #%d dst=0x%08X fmt='%s' r5=0x%08X r6=0x%08X LR=0x%08X SP=0x%08X\n",
-                        spr_cnt, cpu->gpr[3], fmt.c_str(), cpu->gpr[5], cpu->gpr[6], cpu->lr, cpu->gpr[1]);
+        if (rctx->verbose_logging) {
+            static int spr_cnt = 0;
+            ++spr_cnt;
+            std::string fmt = read_guest_cstring(cpu, cpu->gpr[4]);
+            if (cpu->lr == 0x8004F3BCu || cpu->lr == 0x8004F414u || cpu->lr == 0x8004F2C4u || spr_cnt <= 10) {
+                std::printf("[TRACE-SPRINTF] #%d dst=0x%08X fmt='%s' r5=0x%08X r6=0x%08X LR=0x%08X SP=0x%08X\n",
+                            spr_cnt, cpu->gpr[3], fmt.c_str(), cpu->gpr[5], cpu->gpr[6], cpu->lr, cpu->gpr[1]);
+            }
         }
         return false;
     }
@@ -5718,7 +7253,7 @@ static bool host_call_hook(CPUState* cpu, u32 address) {
     } else if (address == 0x80046C74u || address == 0x80046D04u) {
         if (address == 0x80046D04u) {
             if (!std::isfinite(cpu->fpr[3]) || !std::isfinite(cpu->fpr[4]) ||
-                cpu->fpr[3] > 640.0 || cpu->fpr[4] > 528.0 ||
+                cpu->fpr[3] > 4096.0 || cpu->fpr[4] > 4096.0 ||
                 cpu->fpr[3] < 0.5 || cpu->fpr[4] < 0.5) {
                 static int s_vphook_repair_cnt = 0;
                 if (++s_vphook_repair_cnt <= 20) {
@@ -6524,7 +8059,7 @@ static bool host_call_hook(CPUState* cpu, u32 address) {
         // s32 CARDUnmount(s32 chan [r3])
         u32 chan = cpu->gpr[3];
         if (chan == 0) {
-            g_memcardA.save_to_disk();
+            g_memcardA.save_if_dirty();
         }
         cpu->gpr[3] = 0u;
         cpu->pc = cpu->lr;
@@ -7086,6 +8621,115 @@ static bool host_call_hook(CPUState* cpu, u32 address) {
             s_first_wait_frame = 0u;
         }
     }
+    auto call_guest_fn1 = [&](u32 fn_addr, u32 arg0) {
+        if (!rctx->module_call) return;
+        const u32 orig_gpr0 = cpu->gpr[0];
+        const u32 orig_sp = cpu->gpr[1];
+        u32 orig_gpr3_12[10];
+        for (int r = 0; r < 10; ++r) orig_gpr3_12[r] = cpu->gpr[3 + r];
+        const u32 orig_lr = cpu->lr;
+        const u32 orig_ctr = cpu->ctr;
+        const u32 orig_cr = cpu->cr;
+        const u32 orig_xer = cpu->xer;
+        const u32 orig_pc = cpu->pc;
+        const s64 orig_dc = cpu->downcount;
+
+        const u32 call_sp = (orig_sp - 32u) & ~15u;
+        mem_write32(cpu, call_sp, orig_sp);
+        cpu->gpr[1] = call_sp;
+        cpu->gpr[3] = arg0;
+        cpu->lr = 0xFFFFFFF0u;
+        cpu->pc = fn_addr;
+        for (int iter = 0; iter < 50000 && cpu->pc != 0xFFFFFFF0u; ++iter) {
+            cpu->downcount = 100000;
+            if (!rctx->module_call(cpu, cpu->pc)) {
+                if (cpu->lr != 0u && cpu->pc != cpu->lr) {
+                    cpu->pc = cpu->lr;
+                    continue;
+                }
+                break;
+            }
+        }
+
+        cpu->gpr[0] = orig_gpr0;
+        cpu->gpr[1] = orig_sp;
+        for (int r = 0; r < 10; ++r) cpu->gpr[3 + r] = orig_gpr3_12[r];
+        cpu->lr = orig_lr;
+        cpu->ctr = orig_ctr;
+        cpu->cr = orig_cr;
+        cpu->xer = orig_xer;
+        cpu->pc = orig_pc;
+        cpu->downcount = orig_dc;
+    };
+    auto cleanup_stale_vorbis_decoder = [&]() {
+        if (rctx->in_audio_cleanup || mem_read32(cpu, 0x800000E4u) == 0x8027BA80u) {
+            return;
+        }
+        rctx->in_audio_cleanup = true;
+        if (mem_read16(cpu, 0x8027BA80u + 712u) != 0u) {
+            call_guest_fn1(0x8002423Cu, 0x8027BA80u); // OSCancelThread(vorbis_thread)
+        }
+        for (u32 k = 0; k < 8u; ++k) {
+            const u32 dslot = 0x8027B820u + k * 28u;
+            if (mem_read8(cpu, dslot + 24u) != 0u) {
+                const u32 vctx = mem_read32(cpu, dslot + 16u);
+                if (vctx != 0u) {
+                    call_guest_fn1(0x80056B4Cu, vctx); // DestroyOggStream
+                    mem_write32(cpu, dslot + 16u, 0u);
+                }
+                mem_write8(cpu, dslot + 24u, 0u);
+            }
+        }
+        for (u32 j = 0; j < 8u; ++j) {
+            const u32 sslot = 0x8021A4B0u + j * 268u;
+            const u32 dec_ptr = mem_read32(cpu, sslot + 16u);
+            if (dec_ptr >= 0x8027B820u && dec_ptr < 0x8027B820u + 8u * 28u) {
+                mem_write32(cpu, sslot + 16u, 0u);
+            }
+        }
+        if (mem_read32(cpu, 0x8027DD98u) != 0u) {
+            call_guest_fn1(0x8005608Cu, 2u); // FreeVorbisPoolTag(2)
+            mem_write32(cpu, 0x8027DD98u, 0u);
+        }
+        rctx->in_audio_cleanup = false;
+    };
+    auto release_stream_slot_for_voice = [&](u32 voice_slot) {
+        if (rctx->in_audio_cleanup) return;
+        const u32 sid = mem_read32(cpu, voice_slot + 4u);
+        if (sid == 0u) return;
+        for (u32 j = 0; j < 8u; ++j) {
+            const u32 sslot = 0x8021A4B0u + j * 268u;
+            if (mem_read32(cpu, sslot) == sid && mem_read32(cpu, sslot + 220u) != 0u) {
+                const u32 partner = mem_read32(cpu, sslot + 24u);
+                const bool partner_valid = (partner >= 0x8021A4B0u &&
+                                            partner < 0x8021A4B0u + 8u * 268u &&
+                                            ((partner - 0x8021A4B0u) % 268u) == 0u);
+                rctx->in_audio_cleanup = true;
+                if (mem_read32(cpu, 0x800000E4u) != 0x8027BA80u) {
+                    const bool uses_vorbis =
+                        (mem_read32(cpu, sslot + 8u) == 3u || mem_read32(cpu, sslot + 16u) != 0u) ||
+                        (partner_valid && (mem_read32(cpu, partner + 8u) == 3u || mem_read32(cpu, partner + 16u) != 0u));
+                    if (uses_vorbis && mem_read16(cpu, 0x8027BA80u + 712u) != 0u) {
+                        call_guest_fn1(0x8002423Cu, 0x8027BA80u);
+                    }
+                    call_guest_fn1(0x80052F94u, sslot);
+                    if (partner_valid && mem_read32(cpu, partner + 220u) != 0u) {
+                        call_guest_fn1(0x80052F94u, partner);
+                    }
+                }
+                mem_write32(cpu, sslot + 220u, 0u);
+                mem_write32(cpu, sslot + 224u, 0u);
+                mem_write32(cpu, sslot, 0u);
+                if (partner_valid) {
+                    mem_write32(cpu, partner + 220u, 0u);
+                    mem_write32(cpu, partner + 224u, 0u);
+                    mem_write32(cpu, partner, 0u);
+                }
+                rctx->in_audio_cleanup = false;
+                break;
+            }
+        }
+    };
     if (address == 0x7F0185C0u) {
         // AudioChild_StoppingAct: retire any matching HLE voice slot immediately and complete stop-ack (+180=1)
         // so native GV_DestroyActor (0x7F3C8210) frees the Heap 2 buffer (+200) and decrements StreamActor+32.
@@ -7096,6 +8740,7 @@ static bool host_call_hook(CPUState* cpu, u32 address) {
                 for (u32 i = 0; i < 64u; ++i) {
                     const u32 slot = 0x8020E5C0u + i * 212u;
                     if (mem_read8(cpu, slot + 208u) == 1u && mem_read32(cpu, slot) == vid) {
+                        release_stream_slot_for_voice(slot);
                         const u32 flags = mem_read32(cpu, slot + 176u);
                         mem_write8(cpu, slot + 208u, 0u);
                         mem_write32(cpu, slot + 176u, flags & ~0x82u);
@@ -7114,10 +8759,46 @@ static bool host_call_hook(CPUState* cpu, u32 address) {
         }
         return false;
     }
-    if (address == 0x7F01893Cu || address == 0x7F0186ECu) {
-        // DSPAddTask (0x80038190) es HLE sin consumo real de paquetes ADPCM; drenar offset 188 (consumer queue)
-        // para que el ringbuffer de 192KB no bloquee la lectura continua de demo.dat/movie.dat/vox.dat.
-        mem_write32(cpu, cpu->gpr[3] + 188u, 0u);
+    if (address == 0x7F01893Cu) {
+        // DSPAddTask (0x80038190) es HLE sin consumo real de paquetes ADPCM: simular drenaje a tasa
+        // real de bitrate (~18.3 KB/s Codec mono 16kHz / ~36.6 KB/s estéréo) para no vaciar el ringbuffer al instante.
+        const u32 actor = cpu->gpr[3];
+        if (actor == 0u) {
+            return false;
+        }
+        const u32 eof_flag = mem_read32(cpu, actor + 176u);
+        const u32 stop_flag = mem_read32(cpu, actor + 180u);
+        const u32 queued = mem_read32(cpu, actor + 188u);
+        if (actor != rctx->audio_child_actor) {
+            rctx->audio_child_actor = actor;
+            rctx->audio_child_last_frame = rctx->frame_count;
+            rctx->audio_child_last_queued = queued;
+            rctx->audio_child_byte_rem = 0.0;
+        }
+        if (eof_flag != 0u || stop_flag != 0u) {
+            if (queued != 0u) {
+                mem_write32(cpu, actor + 188u, 0u);
+            }
+            rctx->audio_child_last_queued = 0u;
+            rctx->audio_child_byte_rem = 0.0;
+            rctx->audio_child_last_frame = rctx->frame_count;
+        } else if (queued > 0u && rctx->frame_count > rctx->audio_child_last_frame) {
+            if (queued < rctx->audio_child_last_queued) {
+                rctx->audio_child_last_queued = queued;
+                rctx->audio_child_last_frame = rctx->frame_count;
+            } else {
+                const u32 df = std::min<u32>(rctx->frame_count - rctx->audio_child_last_frame, 10u);
+                const double bpf = rctx->codec_active ? (18286.0 / 59.940059) : (36571.0 / 59.940059);
+                rctx->audio_child_byte_rem += bpf * static_cast<double>(df);
+                const u32 drain = static_cast<u32>(rctx->audio_child_byte_rem);
+                rctx->audio_child_byte_rem -= static_cast<double>(drain);
+                const u32 new_q = (drain >= queued) ? 0u : (queued - drain);
+                mem_write32(cpu, actor + 188u, new_q);
+                rctx->audio_child_last_queued = new_q;
+                rctx->audio_child_last_frame = rctx->frame_count;
+            }
+        }
+        return false;
     }
     if (address == 0x7F18EE3Cu) {
         const u32 actor = cpu->gpr[3];
@@ -7168,11 +8849,13 @@ static bool host_call_hook(CPUState* cpu, u32 address) {
     }
     if (address == 0x7F2DDE00u) {
         mem_write32(cpu, 0x7F4A4B40u, 0u);
-        u32 state = mem_read32(cpu, cpu->gpr[3] + 0x44u);
-        static int f2d5d14_calls = 0;
-        if (++f2d5d14_calls <= 10 || f2d5d14_calls % 100 == 0) {
-            std::printf("[MOVIE-DECODE-ACTOR] fn_1_2D5D14 #%d: this=0x%08X state=%u LR=0x%08X\n",
-                        f2d5d14_calls, cpu->gpr[3], state, cpu->lr);
+        if (rctx->verbose_logging) {
+            u32 state = mem_read32(cpu, cpu->gpr[3] + 0x44u);
+            static int f2d5d14_calls = 0;
+            if (++f2d5d14_calls <= 10 || f2d5d14_calls % 100 == 0) {
+                std::printf("[MOVIE-DECODE-ACTOR] fn_1_2D5D14 #%d: this=0x%08X state=%u LR=0x%08X\n",
+                            f2d5d14_calls, cpu->gpr[3], state, cpu->lr);
+            }
         }
         return false;
     }
@@ -7200,6 +8883,7 @@ static bool host_call_hook(CPUState* cpu, u32 address) {
             const u8 active = mem_read8(cpu, slot + 208u);
             const u32 flags = mem_read32(cpu, slot + 176u);
             if (active == 1u && (flags & 0x82u) == 0x82u) {
+                release_stream_slot_for_voice(slot);
                 mem_write8(cpu, slot + 208u, 0u);
                 mem_write32(cpu, slot + 176u, flags & ~0x82u);
                 rctx->voice_start_frame[i] = 0u;
@@ -7246,6 +8930,9 @@ static bool host_call_hook(CPUState* cpu, u32 address) {
         return false;
     }
     if (address == 0x800569F4u) {
+        if (mem_read32(cpu, 0x8027DD98u) != 0u || mem_read16(cpu, 0x8027BA80u + 712u) != 0u) {
+            cleanup_stale_vorbis_decoder();
+        }
         rctx->audio_stream_active = true;
         rctx->audio_stream_start_frame = rctx->frame_count;
         QueryPerformanceCounter(&rctx->audio_stream_last_qpc);
@@ -7267,7 +8954,9 @@ static bool host_call_hook(CPUState* cpu, u32 address) {
             rctx->audio_stream_last_id = 0u;
             rctx->audio_stream_accum_ms = 0.0;
             rctx->audio_stream_last_ms = 0u;
-            retire_stale_stream_voices();
+            if (!rctx->in_audio_cleanup) {
+                retire_stale_stream_voices();
+            }
         }
         return false;
     }
@@ -7292,6 +8981,7 @@ static bool host_call_hook(CPUState* cpu, u32 address) {
             // must not deadlock forever when DSP ADPCM consumption is HLE-bypassed.
             if (cpu->lr == 0x7F18F124u || cpu->lr == 0x7F198034u) {
                 if (++rctx->audio_stream_wait_polls >= 4u) {
+                    cleanup_stale_vorbis_decoder();
                     mem_write32(cpu, 0x8027DD98u, 0u);
                     rctx->audio_stream_active = false;
                     rctx->audio_stream_last_id = 0u;
@@ -7308,7 +8998,7 @@ static bool host_call_hook(CPUState* cpu, u32 address) {
         }
         return false;
     }
-    if (address == 0x800501FCu || (address == 0x80050B54u && cpu->gpr[4] == 0u) || address == 0x80051688u) {
+    if (address == 0x800501FCu || (address == 0x80050B54u && cpu->gpr[4] == 0u)) {
         sync_hle_voices();
         const u32 arg = cpu->gpr[3];
         const u32 req_f = (rctx->frame_count > 0u) ? rctx->frame_count : 1u;
@@ -7335,7 +9025,7 @@ static bool host_call_hook(CPUState* cpu, u32 address) {
             }
         }
         if (any_stream_busy) {
-            if (!rctx->audio_stream_active || mem_read32(cpu, 0x8027DD98u) == 0u || ++rctx->voice_idle_polls >= 4u) {
+            if (!rctx->audio_stream_active || mem_read32(cpu, 0x8027DD98u) == 0u || ++rctx->voice_idle_polls >= 180u) {
                 const u32 retired = retire_stale_stream_voices();
                 rctx->voice_idle_polls = 0u;
                 if (rctx->test_codec || rctx->verbose_logging) {
@@ -7365,12 +9055,17 @@ static bool host_call_hook(CPUState* cpu, u32 address) {
             const u32 slot = 0x8020E5C0u + i * 212u;
             if (mem_read8(cpu, slot + 208u) == 1u && mem_read32(cpu, slot) == vid) {
                 const u32 flags = mem_read32(cpu, slot + 176u);
+                const bool is_stream = (flags & 0x80u) != 0u;
                 const bool stop_expired = (rctx->voice_stop_req_frame[i] > 0u &&
                                            rctx->frame_count >= rctx->voice_stop_req_frame[i] + 4u);
-                const bool sfx_expired = ((flags & 0x80u) == 0u &&
+                const bool sfx_expired = (!is_stream &&
                                           rctx->voice_start_frame[i] > 0u &&
                                           rctx->frame_count >= rctx->voice_start_frame[i] + 20u);
-                if (stop_expired || sfx_expired || rctx->voice_poll_same_count >= 16u) {
+                const bool stale_poll_expired =
+                    (!is_stream || (!rctx->audio_stream_active && mem_read32(cpu, 0x8027DD98u) == 0u)) &&
+                    (rctx->voice_poll_same_count >= 16u);
+                if (stop_expired || sfx_expired || stale_poll_expired) {
+                    release_stream_slot_for_voice(slot);
                     mem_write8(cpu, slot + 208u, 0u);
                     mem_write32(cpu, slot + 176u, flags & ~0x02u);
                     rctx->voice_start_frame[i] = 0u;
@@ -7390,6 +9085,63 @@ static bool host_call_hook(CPUState* cpu, u32 address) {
             cpu->gpr[3] = 0u;
             cpu->pc = cpu->lr;
             return true;
+        }
+        return false;
+    }
+    if (address == 0x80051AA0u) {
+        const u32 vid = cpu->gpr[3];
+        if (vid != rctx->stream_ready_poll_vid ||
+            rctx->frame_count > rctx->stream_ready_poll_last_frame + 10u) {
+            rctx->stream_ready_poll_vid = vid;
+            rctx->stream_ready_poll_start_frame = rctx->frame_count;
+        }
+        rctx->stream_ready_poll_last_frame = rctx->frame_count;
+        const u32 waited_frames = (rctx->frame_count >= rctx->stream_ready_poll_start_frame)
+                                      ? (rctx->frame_count - rctx->stream_ready_poll_start_frame)
+                                      : 0u;
+        for (u32 i = 0; i < 64u; ++i) {
+            const u32 slot = 0x8020E5C0u + i * 212u;
+            if (mem_read8(cpu, slot + 208u) == 1u && mem_read32(cpu, slot) == vid) {
+                const u32 flags = mem_read32(cpu, slot + 176u);
+                if ((flags & 0x81u) == 0x81u) {
+                    const u32 sid = mem_read32(cpu, slot + 4u);
+                    bool found_sslot = false;
+                    if (sid != 0u) {
+                        for (u32 j = 0; j < 8u; ++j) {
+                            const u32 sslot = 0x8021A4B0u + j * 268u;
+                            if (mem_read32(cpu, sslot) == sid && mem_read32(cpu, sslot + 220u) != 0u) {
+                                found_sslot = true;
+                                const u32 sflags = mem_read32(cpu, sslot + 224u);
+                                if ((sflags & 0x20u) == 0u && waited_frames >= 4u) {
+                                    mem_write32(cpu, sslot + 224u, sflags | 0x20u);
+                                    const u32 partner = mem_read32(cpu, sslot + 24u);
+                                    if (partner >= 0x8021A4B0u && partner < 0x8021A4B0u + 8u * 268u &&
+                                        ((partner - 0x8021A4B0u) % 268u) == 0u &&
+                                        mem_read32(cpu, partner + 220u) != 0u) {
+                                        const u32 pflags = mem_read32(cpu, partner + 224u);
+                                        mem_write32(cpu, partner + 224u, pflags | 0x20u);
+                                    }
+                                    if (rctx->test_codec || rctx->verbose_logging) {
+                                        std::printf("[AUDIO-HLE] 0x80051AA0 primed stream ready vid=0x%08X sid=0x%08X waited=%uf f=%u LR=0x%08X\n",
+                                                    vid, sid, waited_frames, rctx->frame_count, cpu->lr);
+                                    }
+                                }
+                                break;
+                            }
+                        }
+                    }
+                    if (!found_sslot && waited_frames >= 8u) {
+                        if (rctx->test_codec || rctx->verbose_logging) {
+                            std::printf("[AUDIO-HLE] 0x80051AA0 orphan stream fallback=1 vid=0x%08X waited=%uf f=%u LR=0x%08X\n",
+                                        vid, waited_frames, rctx->frame_count, cpu->lr);
+                        }
+                        cpu->gpr[3] = 1u;
+                        cpu->pc = cpu->lr;
+                        return true;
+                    }
+                }
+                break;
+            }
         }
         return false;
     }
@@ -7782,6 +9534,7 @@ int main(int argc, char** argv) {
     const char* dol_path = "input/extracted/sys/main.dol";
     const char* rel_path = "input/extracted/files/shared/mgso.rel";
     u32 max_frames = 0;
+    double cli_max_seconds = 0.0;
     bool cli_vsync = false;
     bool cli_novsync = false;
     bool cli_turbo = false;
@@ -7790,11 +9543,14 @@ int main(int argc, char** argv) {
     bool cli_auto_skip = false;
     bool cli_test_move = false;
     bool cli_test_codec = false;
+    bool cli_legacy_renderer = false;
     u32 cli_dump_every = 0;
 
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--frames") == 0 && i + 1 < argc) {
             max_frames = static_cast<u32>(std::strtoul(argv[++i], nullptr, 10));
+        } else if ((std::strcmp(argv[i], "--max-seconds") == 0 || std::strcmp(argv[i], "--timeout") == 0) && i + 1 < argc) {
+            cli_max_seconds = std::strtod(argv[++i], nullptr);
         } else if (std::strcmp(argv[i], "--dll") == 0 && i + 1 < argc) {
             dll_path = argv[++i];
         } else if (std::strcmp(argv[i], "--vsync") == 0) {
@@ -7818,6 +9574,8 @@ int main(int argc, char** argv) {
             cli_test_move = true;
         } else if (std::strcmp(argv[i], "--test-codec") == 0) {
             cli_test_codec = true;
+        } else if (std::strcmp(argv[i], "--legacy-renderer") == 0) {
+            cli_legacy_renderer = true;
         } else if (argv[i][0] >= '0' && argv[i][0] <= '9') {
             max_frames = static_cast<u32>(std::strtoul(argv[i], nullptr, 10));
         }
@@ -7877,6 +9635,7 @@ int main(int argc, char** argv) {
     rctx.gx_cp = &gx_cp;
     rctx.render_device = &render_device;
     rctx.max_frames = max_frames;
+    rctx.max_seconds = cli_max_seconds;
     rctx.verbose_logging = cli_verbose;
     rctx.audit_dolphin_shaders = cli_audit_dolphin_shaders;
     rctx.auto_skip = cli_auto_skip;
@@ -7884,6 +9643,9 @@ int main(int argc, char** argv) {
     rctx.test_codec = cli_test_codec;
     rctx.dump_frame_interval = cli_dump_every;
     render_device.SetAuditDolphinShaders(cli_audit_dolphin_shaders);
+    render_device.SetUseDolphinPipeline(!cli_legacy_renderer);
+    std::printf("[GFX] Renderizador activo: %s\n",
+                cli_legacy_renderer ? "Legacy TEV (--legacy-renderer)" : "ModernGekko DolphinVideo OpenGL 4.5 Core");
     if (cli_novsync) rctx.vsync_enabled = false;
     if (cli_turbo) {
         rctx.vsync_enabled = false;
@@ -7936,10 +9698,35 @@ int main(int argc, char** argv) {
     pfd.iLayerType = PFD_MAIN_PLANE;
     int pf = ChoosePixelFormat(rctx.hdc, &pfd);
     SetPixelFormat(rctx.hdc, pf, &pfd);
-    rctx.hglrc = wglCreateContext(rctx.hdc);
-    wglMakeCurrent(rctx.hdc, rctx.hglrc);
+    HGLRC legacy_ctx = wglCreateContext(rctx.hdc);
+    wglMakeCurrent(rctx.hdc, legacy_ctx);
+    auto wglCreateContextAttribsARB = reinterpret_cast<PFNWGLCREATECONTEXTATTRIBSARBPROC>(
+        wglGetProcAddress("wglCreateContextAttribsARB"));
+    if (wglCreateContextAttribsARB) {
+        constexpr int WGL_CONTEXT_MAJOR_VERSION_ARB = 0x2091;
+        constexpr int WGL_CONTEXT_MINOR_VERSION_ARB = 0x2092;
+        constexpr int WGL_CONTEXT_PROFILE_MASK_ARB = 0x9126;
+        constexpr int WGL_CONTEXT_CORE_PROFILE_BIT_ARB = 0x00000001;
+        const int attribs[] = {
+            WGL_CONTEXT_MAJOR_VERSION_ARB, 4,
+            WGL_CONTEXT_MINOR_VERSION_ARB, 5,
+            WGL_CONTEXT_PROFILE_MASK_ARB, WGL_CONTEXT_CORE_PROFILE_BIT_ARB,
+            0
+        };
+        HGLRC core_ctx = wglCreateContextAttribsARB(rctx.hdc, nullptr, attribs);
+        if (core_ctx) {
+            wglMakeCurrent(rctx.hdc, core_ctx);
+            wglDeleteContext(legacy_ctx);
+            rctx.hglrc = core_ctx;
+        } else {
+            rctx.hglrc = legacy_ctx;
+        }
+    } else {
+        rctx.hglrc = legacy_ctx;
+    }
 
-    std::printf("[GFX] Contexto OpenGL activo: %s | %s\n",
+    std::printf("[GFX] Contexto OpenGL activo: %s | %s | %s\n",
+                reinterpret_cast<const char*>(glGetString(GL_VERSION)),
                 reinterpret_cast<const char*>(glGetString(GL_VENDOR)),
                 reinterpret_cast<const char*>(glGetString(GL_RENDERER)));
 
@@ -8086,10 +9873,22 @@ int main(int argc, char** argv) {
     HistoryEntry history[64] = {};
     size_t hist_idx = 0;
 
+    rctx.run_start_time = std::chrono::steady_clock::now();
+
     while (!rctx.window_closed) {
         if (rctx.max_frames > 0 && rctx.frame_count >= rctx.max_frames) {
             std::printf("[OK] Limite de %u fotogramas alcanzado satisfactoriamente.\n", rctx.max_frames);
             break;
+        }
+        if (rctx.max_seconds > 0.0 && ((total_blocks & 0x3FFu) == 0)) {
+            const double elapsed_s = std::chrono::duration<double>(
+                std::chrono::steady_clock::now() - rctx.run_start_time).count();
+            if (elapsed_s >= rctx.max_seconds) {
+                rctx.timed_out = true;
+                std::printf("[TIMEOUT] Limite de tiempo %.1fs alcanzado (frame=%u, bloques=%llu). Deteniendo ejecucion.\n",
+                            rctx.max_seconds, rctx.frame_count, static_cast<unsigned long long>(total_blocks));
+                break;
+            }
         }
 
         history[hist_idx % 64] = {cpu.pc, cpu.lr, cpu.gpr[1]};
@@ -8242,6 +10041,7 @@ int main(int argc, char** argv) {
     }
     set_controller_rumble(0.0f);
     timeEndPeriod(1);
+    render_device.ShutdownGlResources();
     if (rctx.hglrc) {
         wglMakeCurrent(nullptr, nullptr);
         wglDeleteContext(rctx.hglrc);
@@ -8255,11 +10055,14 @@ int main(int argc, char** argv) {
 #endif
 
     rctx.close_cached_dvd_handles();
-    g_memcardA.save_to_disk();
+    g_memcardA.save_if_dirty();
     rel_free(&rel);
     dol_free(&dol);
     cpu.ram = orig_cpu_ram;
     cpu.mem2 = orig_cpu_mem2;
     cpu_free(&cpu);
+    if (rctx.timed_out && rctx.max_frames > 0 && rctx.frame_count < rctx.max_frames) {
+        return 2;
+    }
     return (rctx.reached_start && rctx.reached_main && rctx.reached_mgso_prolog) ? 0 : 1;
 }

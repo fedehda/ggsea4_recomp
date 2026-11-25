@@ -85,5 +85,21 @@
     "status": "PASSED",
     "frames_verified": 2800,
     "summary": "Phase 1 completion verified (Tests 1-3): BuildGpuVertexBatch VCD/VAT sanitization fixed r_title y=147/480 Z-clip cutoff and area01a top HUD/radar stability (f=2200..2700); registering 0x7F0185C0u and 0x80054EC8u in kHookedAddrs plus AudioChild_StoppingAct voice retirement eliminated all [STREAM-CLEANUP-TIMEOUT] stalls and reached frame 2800 across Codec #1 and #2 with 0 OSPanic/RING-GUARD/CODEC-STALL/no-memory errors."
+  },
+  {
+    "timestamp": "2026-11-21T11:00:14-03:00",
+    "report": ".agents/qa/reports/report-20261121-110014.md",
+    "target": "ggsea4_gfx_runtime.exe",
+    "status": "PASSED",
+    "frames_verified": 2800,
+    "summary": "Phase 2 completed & verified (Tests 1-4): Pure OpenGL 4.5.0 Core Profile, GL_TEXTURE_2D_ARRAY + GL_TEXTURE_SWIZZLE_RGBA, Radar Scissor fix (0 spill across frames 2200..2700, steady LIFE bar), ModernGekko DolphinVideo GPU pipeline default with 61 GLSL 4.50 shaders compiled (0 shader/GL errors), ShutdownGlResources & ring-buffer fence q_cur clamp fixing exit teardown, plus working --legacy-renderer fallback."
+  },
+  {
+    "timestamp": "2026-11-24T02:08:00-03:00",
+    "report": ".agents/qa/reports/report-20261124-020800.md",
+    "target": "ggsea4_gfx_runtime.exe",
+    "status": "PASSED",
+    "frames_verified": 4500,
+    "summary": "Phase 3 verified: ModernGekko lighting/matrix OOB fixes, Dolphin draw batching (61.7-110.0 FPS across f=4100..5500, ~6x GLDraws/f reduction), MemCard save_if_dirty(), Codec/Audio readiness & Vorbis stream teardown fix (OSCancelThread + DestroyStreamSlot, passing prior f=2709 crash with repeated Codec calls through f=4500), plus deterministic --max-seconds/--timeout CLI guard."
   }
 ]
