@@ -285,7 +285,7 @@ static u8* resolve_guest_ptr(CPUState* cpu, u32 addr, u32 size) {
 }
 
 // ============================================================================
-// Opciones de Calidad de Vida (QoL): Relación de Aspecto & Presentación
+// Quality of Life (QoL) Options: Aspect Ratio & Presentation
 // ============================================================================
 enum class AspectRatioMode {
     Original_4_3,
@@ -294,7 +294,7 @@ enum class AspectRatioMode {
 };
 
 // ============================================================================
-// Convertidor YUY2 (GameCube XFB) -> RGBA8 para OpenGL Scanout
+// YUY2 (GameCube XFB) -> RGBA8 converter for OpenGL Scanout
 // ============================================================================
 static bool convert_xfb_yuy2_to_rgba8(const u8* src, u32 width, u32 height, u32 stride_bytes, u32* dst_rgba) {
     bool has_visible_luma = false;
@@ -446,7 +446,7 @@ static bool save_rgba8_to_bmp(const char* filepath, int width, int height, const
 static CPUState* g_active_cpu = nullptr;
 
 // ============================================================================
-// Ggsea4RenderDevice: Implementación OpenGL + GLSL GX TEV + EFB-to-Texture
+// Ggsea4RenderDevice: OpenGL + GLSL GX TEV + EFB-to-Texture implementation
 // ============================================================================
 class Ggsea4RenderDevice final : public moderngekko::GxRenderDevice {
 public:
@@ -959,7 +959,7 @@ public:
             m_glGenRenderbuffers && m_glBindRenderbuffer && m_glRenderbufferStorage &&
             m_glFramebufferRenderbuffer && m_glCheckFramebufferStatus) {
 
-            // 1. Textura de dibujo directo para Virtual EFB hardware nativo (640x528 RGBA8)
+            // 1. Direct draw texture for native hardware Virtual EFB (640x528 RGBA8)
             glGenTextures(1, &m_efb_color_tex);
             glBindTexture(GL_TEXTURE_2D, m_efb_color_tex);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -968,7 +968,7 @@ public:
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
             glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, EFB_WIDTH, EFB_HEIGHT, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
 
-            // 2. Textura de presentación para scanout de fotogramas listos (640x480 RGBA8)
+            // 2. Presentation texture for scanout of completed frames (640x480 RGBA8)
             glGenTextures(1, &m_efb_display_tex);
             glBindTexture(GL_TEXTURE_2D, m_efb_display_tex);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -977,12 +977,12 @@ public:
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
             glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, DISP_WIDTH, DISP_HEIGHT, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
 
-            // 3. Renderbuffer de Profundidad (Depth24 640x528)
+            // 3. Depth Renderbuffer (Depth24 640x528)
             m_glGenRenderbuffers(1, &m_efb_depth_rb);
             m_glBindRenderbuffer(GL_RENDERBUFFER, m_efb_depth_rb);
             m_glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, EFB_WIDTH, EFB_HEIGHT);
 
-            // 4. Configurar FBO principal del EFB (640x528) + FBOs auxiliares para GXCopyDisp / GXCopyTex
+            // 4. Configure main EFB FBO (640x528) + auxiliary FBOs for GXCopyDisp / GXCopyTex
             m_glGenFramebuffers(1, &m_efb_fbo);
             m_glBindFramebuffer(GL_FRAMEBUFFER, m_efb_fbo);
             m_glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_efb_color_tex, 0);
@@ -1962,7 +1962,7 @@ public:
             }
         }
 
-        // 1. Mantener telemetría y caché de shaders DolphinVideo cuando corresponda
+        // 1. Maintain DolphinVideo shader telemetry and cache when applicable
         if (m_audit_dolphin_shaders) {
             const auto pipeline_key = moderngekko::GxPipelineKey::FromState(decoded.topology, state);
             const std::uint64_t key_hash = pipeline_key.Hash();
@@ -1993,7 +1993,7 @@ public:
 
         const uint32_t genmode = state.bp[0x00u];
         const uint32_t cull_mode = (genmode >> 14) & 3u;
-        // CullMode::All (3) descarta triángulos/quads en hardware Flipper
+        // CullMode::All (3) discards triangles/quads on Flipper hardware
         if (cull_mode == 3u && decoded.topology == moderngekko::GxTopology::Triangles) {
             return;
         }
@@ -2005,7 +2005,7 @@ public:
             gl_mode = GL_POINTS;
         }
 
-        // 2. Pre-calcular Viewport GX (xf[0x101A..0x101F]) y Scissor (bp[0x20..0x21], bp[0x59]) en variables locales
+        // 2. Pre-calculate GX Viewport (xf[0x101A..0x101F]) and Scissor (bp[0x20..0x21], bp[0x59]) in local variables
         const float* xf_floats = reinterpret_cast<const float*>(state.xf.data());
         const uint32_t sc_off = state.bp[0x59u];
         const int x_off = (sc_off != 0u) ? static_cast<int>((sc_off & 0x1FFu) << 1) : 342;
@@ -2094,7 +2094,7 @@ public:
             }
         }
 
-        // Scissor hardware Flipper (BP 0x20, 0x21, 0x59)
+        // Flipper hardware scissor (BP 0x20, 0x21, 0x59)
         const uint32_t sc_tl = state.bp[0x20u];
         const uint32_t sc_br = state.bp[0x21u];
         bool new_sc_enabled = m_cached_want_sc;
@@ -2132,7 +2132,7 @@ public:
             m_sc_cache_valid = true;
         }
 
-        // Culling de caras (BP 0x00 bits 14..15)
+        // Face culling (BP 0x00 bits 14..15)
         uint32_t eff_cull = 0u;
         if (decoded.topology == moderngekko::GxTopology::Triangles && (cull_mode == 1u || cull_mode == 2u)) {
             eff_cull = cull_mode;
@@ -2164,7 +2164,7 @@ public:
                                    (target_has_alpha ? (1u << 24) : 0u) |
                                    (dst_alpha_en ? (1u << 25) : 0u);
 
-        // Pre-evaluación de AlphaCompare (BP 0xF3) + ZCompLoc (BP 0x43 bit 6)
+        // Pre-evaluation of AlphaCompare (BP 0xF3) + ZCompLoc (BP 0x43 bit 6)
         const uint32_t num_tev_stages = std::clamp<uint32_t>(((genmode >> 10) & 0xFu) + 1u, 1u, 16u);
         const bool bp_configured = (state.bp[0xC0u] != 0u || state.bp[0x28u] != 0u || genmode != 0u);
         const uint32_t alphacmp = state.bp[0xF3u];
@@ -2186,7 +2186,7 @@ public:
             }
         }
 
-        // 3. Escanear etapas TEV activas en una sola pasada y resolver texturas (sin mutar m_bound_tex todavía)
+        // 3. Scan active TEV stages in a single pass and resolve textures (without mutating m_bound_tex yet)
         uint32_t used_texmap_mask = 0u;
         uint32_t used_tcoord_mask = 0u;
         std::array<uint8_t, 8> tc_to_tm = {0, 1, 2, 3, 4, 5, 6, 7};
@@ -2240,7 +2240,7 @@ public:
                 : static_cast<float>(std::max<uint32_t>(1u, resolved_tex_h[tm]));
         }
 
-        // 4. Obtener programa TEV y caches de colores TEV/Konst
+        // 4. Get TEV program and TEV/Konst color caches
         TevProgramEntry* tev_prog = EnsureTevProgram(state, num_tev_stages, bp_configured);
         if (state.bp_tev_col_generation == 0u || state.bp_tev_col_generation != m_cached_tev_col_gen) {
             constexpr float inv255 = 1.0f / 255.0f;
@@ -2274,7 +2274,7 @@ public:
                                 tev_prog != nullptr && tev_prog->program != 0 && m_vbo != 0 &&
                                 !m_audit_dolphin_shaders && m_draw_count > 5 && m_current_frame != 2200u);
 
-        // 5. Evaluar si el lote abierto puede continuar o debe vaciarse
+        // 5. Evaluate whether the open batch can continue or must be flushed
         if (m_batch_active) {
             bool matches = can_batch &&
                 (m_batch_tev_prog == tev_prog) &&
@@ -2328,7 +2328,7 @@ public:
             }
         }
 
-        // 6. Reservar espacio en VBO/EBO (con sincronización por cuartos si no hay lote abierto)
+        // 6. Reserve space in VBO/EBO (with quarter-buffer synchronization if no batch is open)
         constexpr GLsizei stride = static_cast<GLsizei>(sizeof(GpuVertex));
         const bool use_direct_vbo = (m_vbo_mapped != nullptr && est_verts <= m_vbo_max_verts &&
                                      !m_audit_dolphin_shaders && m_draw_count != 5 && m_current_frame != 2200u);
@@ -2392,7 +2392,7 @@ public:
             }
         }
 
-        // 7. Transformar lote de vértices GX (directamente al VBO mapeado cuando es posible)
+        // 7. Transform GX vertex batch (directly into mapped VBO when possible)
         size_t batch_verts = 0;
         GpuVertex* vbo_direct_ptr = use_direct_vbo
             ? (reinterpret_cast<GpuVertex*>(m_vbo_mapped) + vbo_start_vtx)
@@ -2406,7 +2406,7 @@ public:
             return;
         }
 
-        // Ruta rápida cuando el draw se fusiona en el lote activo (GL ya tiene todo el estado enlazado)
+        // Fast path when the draw merges into the active batch (GL already has all state bound)
         if (m_batch_active) {
             m_vbo_cursor_vtx += batch_verts;
             uint32_t* ebo_dst = reinterpret_cast<uint32_t*>(m_ebo_mapped) + ebo_start_idx;
@@ -2426,7 +2426,7 @@ public:
             return;
         }
 
-        // 8. Aplicar cambios de estado OpenGL únicamente si es un lote/draw nuevo
+        // 8. Apply OpenGL state changes only if this is a new batch/draw
         if (m_efb_fbo != 0 && m_glBindFramebuffer && !m_bound_efb_fbo) {
             m_glBindFramebuffer(GL_FRAMEBUFFER, m_efb_fbo);
             m_bound_efb_fbo = true;
@@ -2610,7 +2610,7 @@ public:
             }
         }
 
-        // Volcado de diagnóstico DolphinShaderCompiler (--audit-dolphin-shaders)
+        // DolphinShaderCompiler diagnostic dump (--audit-dolphin-shaders)
         if (m_audit_dolphin_shaders && ((m_draw_count >= 80 && m_draw_count <= 140) || (m_draw_count >= 8840 && m_draw_count <= 8850))) {
             std::printf("[AUDIT-DRAW %llu] stages=%u tex_mask=0x%X\n",
                         static_cast<unsigned long long>(m_draw_count), num_tev_stages, used_texmap_mask);
@@ -2853,14 +2853,14 @@ public:
         }
 
         InvalidateGlStateCache();
-        // Coordenadas Y en m_efb_fbo (640x528, origen GL abajo-izquierda vs origen GX arriba-izquierda)
-        const int gl_src_y0 = EFB_HEIGHT - src_y1; // borde inferior en GL
-        const int gl_src_y1 = EFB_HEIGHT - src_y0; // borde superior en GL
+        // Y coordinates in m_efb_fbo (640x528, GL bottom-left origin vs GX top-left origin)
+        const int gl_src_y0 = EFB_HEIGHT - src_y1; // bottom edge in GL
+        const int gl_src_y1 = EFB_HEIGHT - src_y0; // top edge in GL
 
         glDisable(GL_SCISSOR_TEST);
 
         if (!copy.copy_to_xfb && copy.destination_address != 0 && m_efb_copy_fbo != 0 && m_glBlitFramebuffer) {
-            // GXCopyTex: Capturar sub-región del EFB a una textura GPU cacheada por dirección física
+            // GXCopyTex: Capture EFB sub-region into a GPU texture cached by physical address
             const uint32_t phys_dst = copy.destination_address & 0x3FFFFFFFu;
             const int dst_w = copy.half_scale ? std::max(1, copy_w / 2) : copy_w;
             const int dst_h = copy.half_scale ? std::max(1, copy_h / 2) : copy_h;
@@ -2892,9 +2892,9 @@ public:
             } else if (real_fmt == 2u || real_fmt == 3u) {
                 entry.tex_mode = efb_has_alpha ? 3 : 2; // IA4/IA8
             } else if (!efb_has_alpha || real_fmt == 4u) {
-                entry.tex_mode = 1; // RGB sin canal alfa (A = 1.0)
+                entry.tex_mode = 1; // RGB without alpha channel (A = 1.0)
             } else {
-                entry.tex_mode = 0; // RGBA completo
+                entry.tex_mode = 0; // Full RGBA
             }
             if (resized || entry.last_tex_mode != entry.tex_mode) {
                 glBindTexture(GL_TEXTURE_2D_ARRAY, entry.gl_tex);
@@ -2911,7 +2911,7 @@ public:
                 m_glFramebufferTextureLayer(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, entry.gl_tex, 0, 0);
             }
             glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-            // Invertir Y al copiar para que t=0 de la textura corresponda al borde superior de GX
+            // Flip Y on copy so texture t=0 corresponds to the top edge of GX
             m_glBlitFramebuffer(src_x0, gl_src_y1, src_x1, gl_src_y0,
                                 0, 0, dst_w, dst_h,
                                 GL_COLOR_BUFFER_BIT, copy.half_scale ? GL_LINEAR : GL_NEAREST);
@@ -2923,9 +2923,9 @@ public:
             } else {
                 ++m_zero_draw_xfb_streak;
             }
-            // Permitir blitear frames consecutivos sin draws (>=2) para no suprimir fade-to-black reales.
+            // Allow blitting consecutive frames with no draws (>=2) so real fade-to-black transitions are not suppressed.
             if (m_draws_since_clear > 0 || !m_efb_has_displayable_frame || m_zero_draw_xfb_streak >= 2u) {
-                // Coordenadas Y en m_efb_fbo (640x528, origen GL abajo-izquierda vs origen GX arriba-izquierda)
+                // Y coordinates in m_efb_fbo (640x528, GL bottom-left origin vs GX top-left origin)
                 const int blit_x0 = src_x0;
                 const int blit_y0 = gl_src_y0;
                 const int blit_x1 = src_x1;
@@ -3084,7 +3084,7 @@ public:
             }
         }
 
-        // 1. Resetear estados de pipeline de OpenGL para garantizar presentación limpia e inalterada
+        // 1. Reset OpenGL pipeline states to ensure clean, unaltered presentation
         glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
         glDepthMask(GL_TRUE);
         glDisable(GL_SCISSOR_TEST);
@@ -3096,15 +3096,15 @@ public:
             m_glBlendEquation(GL_FUNC_ADD);
         }
 
-        // 2. Limpiar franjas exteriores con negro absoluto (pillarbox / letterbox)
+        // 2. Clear outer bars with pure black (pillarbox / letterbox)
         glViewport(0, 0, static_cast<GLsizei>(client_w), static_cast<GLsizei>(client_h));
         glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        // Establecer viewport de aspecto
+        // Set aspect-ratio viewport
         glViewport(vp_x, vp_y, vp_w, vp_h);
 
-        // 3. Verificar si existe un XFB activo en MEM1 con datos de video YUY2 (solo si no hay frame EFB listo)
+        // 3. Check if an active XFB exists in MEM1 with YUY2 video data (only if no EFB frame is ready)
         u32 xfb_addr = (vi_xfb_addr != 0) ? vi_xfb_addr : m_last_xfb_address;
         bool xfb_valid = false;
         if (!(m_efb_has_displayable_frame && m_efb_display_tex != 0) && xfb_addr != 0) {
@@ -3123,7 +3123,7 @@ public:
                         m_has_drawn_in_efb ? 1 : 0, static_cast<unsigned long long>(m_draw_count));
         }
 
-        // Si hubo draws en EFB pero nunca se ejecutó GXCopyDisp aún, capturar región superior 640x480 como fallback inicial
+        // If there were EFB draws but GXCopyDisp has not run yet, capture the top 640x480 region as initial fallback
         if (!m_efb_has_displayable_frame && !m_xfb_copied_this_frame && !m_video_frame_captured && m_has_drawn_in_efb && m_efb_fbo != 0 &&
             m_efb_display_fbo != 0 && m_glBindFramebuffer && m_glBlitFramebuffer) {
             m_glBindFramebuffer(GL_READ_FRAMEBUFFER, m_efb_fbo);
@@ -3182,16 +3182,16 @@ public:
         };
 
         if (m_efb_has_displayable_frame && m_efb_display_tex != 0) {
-            // Presentación Virtual EFB (Renderizado GPU nativo de GX) - PRIORIDAD 1
+            // Virtual EFB presentation (native GX GPU rendering) - PRIORITY 1
             draw_present_tex(m_efb_display_tex, 0);
         } else if (xfb_valid) {
-            // Presentación XFB (GameCube scanout desde memoria principal) - FALLBACK
+            // XFB presentation (GameCube scanout from main memory) - FALLBACK
             if (m_glActiveTexture) m_glActiveTexture(GL_TEXTURE0);
             glBindTexture(GL_TEXTURE_2D, m_xfb_tex);
             glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 640, 480, GL_RGBA, GL_UNSIGNED_BYTE, m_xfb_rgba.data());
             draw_present_tex(m_xfb_tex, 1);
         } else if (m_draw_count == 0) {
-            // Fondo táctico estilo MGS: The Twin Snakes (Codec / Radar) mientras inicializa XFB/GX
+            // Tactical MGS: The Twin Snakes style background (Codec / Radar) while XFB/GX initializes
             glClearColor(0.03f, 0.07f, 0.06f, 1.0f);
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -3219,7 +3219,7 @@ public:
             glDisable(GL_BLEND);
         }
 
-        // 4. Overlay de Diagnóstico Táctico (HUD - Conmutable con tecla F1)
+        // 4. Tactical Diagnostic Overlay (HUD - Toggleable with F1 key)
         if (show_debug_hud) {
             glEnable(GL_BLEND);
             if (m_glBlendFuncSeparate) {
@@ -3228,10 +3228,10 @@ public:
                 glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
             }
 
-            // Panel semi-transparente táctico en el borde inferior
+            // Semi-transparent tactical panel at the bottom edge
             draw_hud_rect(-0.98f, -0.98f, 0.98f, -0.80f, 0.01f, 0.06f, 0.04f, 0.82f);
 
-            // Borde del panel
+            // Panel border
             const float border_verts[8] = {
                 -0.98f, -0.98f,
                  0.98f, -0.98f,
@@ -3240,7 +3240,7 @@ public:
             };
             draw_hud_prims(GL_LINE_LOOP, border_verts, 4u, 0.15f, 0.65f, 0.45f, 0.90f);
 
-            // Indicador de fuente activa
+            // Active source indicator
             if (xfb_valid) {
                 draw_hud_rect(-0.95f, -0.94f, -0.90f, -0.84f, 0.1f, 0.85f, 1.0f, 1.0f);
             } else if (m_efb_has_displayable_frame || m_has_drawn_in_efb) {
@@ -3249,7 +3249,7 @@ public:
                 draw_hud_rect(-0.95f, -0.94f, -0.90f, -0.84f, 1.0f, 0.75f, 0.1f, 1.0f);
             }
 
-            // Barra visual de actividad geométrica
+            // Visual geometry activity bar
             float activity_len = 0.05f;
             if (m_vertex_count > 0) {
                 activity_len = std::min(1.75f, 0.05f + static_cast<float>(m_vertex_count % 100000) / 100000.0f * 1.70f);
@@ -3605,7 +3605,7 @@ private:
         *out_w = tex_desc.width;
         *out_h = tex_desc.height;
 
-        // 1. Priorizar copia EFB-a-Textura en GPU si la región RAM subyacente no fue sobreescrita por CPU/DMA
+        // 1. Prioritize GPU EFB-to-Texture copy if the underlying RAM region was not overwritten by CPU/DMA
         const uint32_t phys_addr = tex_desc.address & 0x3FFFFFFFu;
         if (phys_addr != 0u && phys_addr < 0x01800000u) {
             auto efb_it = m_efb_textures.find(phys_addr);
@@ -3631,7 +3631,7 @@ private:
             }
         }
 
-        // 2. Resolver bytes codificados en MEM1 / VM (0x7Fxxxxxx) o TMEM preloaded
+        // 2. Resolve encoded bytes in MEM1 / VM (0x7Fxxxxxx) or preloaded TMEM
         const size_t enc_size = moderngekko::GxTextureDecoder::EncodedSize(
             tex_desc.width, tex_desc.height, tex_desc.format);
         if (enc_size == 0) {
@@ -3661,7 +3661,7 @@ private:
                         tex_desc.width, tex_desc.height, static_cast<unsigned>(tex_desc.format), enc_size, enc_ptr);
         }
 
-        // 3. Resolver paleta TLUT desde TMEM si el formato es indexado (C4 / C8 / C14X2)
+        // 3. Resolve TLUT palette from TMEM if format is indexed (C4 / C8 / C14X2)
         const size_t pal_entries = moderngekko::GxTextureDecoder::PaletteEntries(tex_desc.format);
         const size_t pal_bytes = pal_entries * 2u;
         std::span<const std::uint8_t> pal_span{};
@@ -3684,7 +3684,7 @@ private:
             tex_mode = 3; // Intensity-Alpha -> IIIA
         } else if (tex_desc.format == moderngekko::GxTextureFormat::RGB565 ||
                    (pal_bytes > 0u && tex_desc.palette_format == moderngekko::GxPaletteFormat::RGB565)) {
-            tex_mode = 1; // RGB opaco (A=1)
+            tex_mode = 1; // Opaque RGB (A=1)
         }
         *out_mode = tex_mode;
 
@@ -3701,7 +3701,7 @@ private:
                                    ((tex_desc.width == 512 && tex_desc.height == 320) ||
                                     (tex_desc.width == 256 && tex_desc.height == 160)));
 
-        // Early-out #1: Dentro del mismo fotograma, omitir hash y comprobación de memoria (0 ns)
+        // Early-out #1: Within the same frame, skip hash and memory check (0 ns)
         auto it = m_ram_textures.find(key);
         if (it != m_ram_textures.end() && it->second.uploaded) {
             if (it->second.last_frame_checked == m_current_frame) {
@@ -3726,7 +3726,7 @@ private:
             }
 
             if (!is_linear_yuv) {
-                // Primer chequeo en nuevo fotograma: muestreo ultrarrápido
+                // First check on a new frame: ultra-fast sampling
                 const uint64_t content_hash = ComputeFastContentHash(enc_ptr, enc_size);
                 const uint64_t tlut_hash = (pal_bytes > 0u) ? ComputeFastTlutHash(pal_span) : 0ull;
 
@@ -3767,7 +3767,7 @@ private:
         auto& entry = m_ram_textures[key];
         moderngekko::GxDecodedTexture& decoded_tex = m_decoded_tex_scratch;
         if (is_linear_yuv) {
-            // Buffer planar lineal de video de Silicon Knights (Theora / VP3): no está organizado en tiles GX de 8x4
+            // Silicon Knights linear planar video buffer (Theora / VP3): not organized in 8x4 GX tiles
             decoded_tex.width = tex_desc.width;
             decoded_tex.height = tex_desc.height;
             decoded_tex.rgba8.resize(static_cast<size_t>(tex_desc.width) * tex_desc.height);
@@ -3863,12 +3863,12 @@ private:
                 raw_proj[i] = xf_floats[0x1020u + i];
             }
             proj_type = state.xf[0x1026u];
-            // Para perspectiva (proj_type == 0), se requiere al menos que los términos de escala FOV (P0 y P2) sean no nulos
+            // For perspective (proj_type == 0), at least the FOV scale terms (P0 and P2) must be non-zero
             if (proj_type == 0u) {
                 if (std::fabs(raw_proj[0]) > 1e-4f && std::fabs(raw_proj[2]) > 1e-4f) {
                     has_valid_proj = true;
                 } else {
-                    // Fallback de perspectiva estándar 4:3 (FOV vertical ~45°: p2 ~ 2.414f, p0 ~ 1.81f, near=10, far=10000)
+                    // Standard 4:3 perspective fallback (vertical FOV ~45°: p2 ~ 2.414f, p0 ~ 1.81f, near=10, far=10000)
                     raw_proj[0] = 1.8106f; raw_proj[1] = 0.0f;
                     raw_proj[2] = 2.4142f; raw_proj[3] = 0.0f;
                     raw_proj[4] = -1.0002f; raw_proj[5] = -20.002f;
@@ -3937,7 +3937,7 @@ private:
             out[3] = static_cast<float>(c & 0xFFu) * inv255;
         };
 
-        // Precomputar descriptores de canales de iluminación fuera del bucle de vértices
+        // Precompute lighting channel descriptors outside the vertex loop
         struct ChanPrecomp {
             bool passthrough = true;
             bool need_vtx = false;
@@ -4089,7 +4089,7 @@ private:
             }
         };
 
-        // Precomputar TexGen configs 0..num_tex_gens-1 fuera del bucle
+        // Precompute TexGen configs 0..num_tex_gens-1 outside the loop
         struct TexGenPrecomp {
             uint32_t tg_type = 0;
             uint32_t src_row = 0;
@@ -4191,7 +4191,7 @@ private:
         const float y_sign = (vp_ht_half > 0.0f) ? -1.0f : 1.0f;
         const bool use_clip_ctrl = (m_glClipControl != nullptr);
 
-        // Precomputar matriz combinada MVP (Clip = Proj * PosMtx) cuando los vértices son rígidos y no requieren eye_pos
+        // Precompute combined MVP matrix (Clip = Proj * PosMtx) when vertices are rigid and do not need eye_pos
         const bool use_fast_mvp = (!has_pos_mtx && has_valid_proj &&
                                    !ch_pre[0].c_lit && !ch_pre[0].a_lit &&
                                    (!need_lit1 || (!ch_pre[1].c_lit && !ch_pre[1].a_lit)));
@@ -4243,7 +4243,7 @@ private:
                 gv.pos[3] = vx * mvp[3][0] + vy * mvp[3][1] + vz * mvp[3][2] + mvp[3][3];
                 if (proj_type == 0u && gv.pos[3] == 0.0f) gv.pos[3] = 1.0f;
             } else {
-                // 1. Transformación Posición + Normal en espacio de cámara (XF)
+                // 1. Position + Normal transformation in camera space (XF)
                 const uint32_t pos_row = has_pos_mtx ? (vtx.position_matrix & 0x3Fu) : fixed_pos_row;
                 if (has_valid_proj) {
                     if (!has_pos_mtx) {
@@ -4331,7 +4331,7 @@ private:
                 }
             }
 
-            // 2. Canales de color e iluminación XF (COLOR0A0 / COLOR1A1)
+            // 2. XF color and lighting channels (COLOR0A0 / COLOR1A1)
             const float eye_pos[3] = {vx, vy, vz};
             const float eye_nrm[3] = {nx, ny, nz};
             float lit0[4] = {1.0f, 1.0f, 1.0f, 1.0f};
@@ -4359,7 +4359,7 @@ private:
                 gv.col1[0] = 0.0f; gv.col1[1] = 0.0f; gv.col1[2] = 0.0f; gv.col1[3] = 0.0f;
             }
 
-            // 3. Generación de coordenadas de textura XF (TexGen 0..7 + TexMtx + DualTex)
+            // 3. XF texture coordinate generation (TexGen 0..7 + TexMtx + DualTex)
             auto safe_tex_u = [&](uint32_t t) -> float {
                 return (t < 8u && tex_desc[t] != 0u) ? vtx.texcoord[t][0] : 0.0f;
             };
@@ -4536,7 +4536,7 @@ private:
             return &it->second;
         }
 
-        // Construir tablas de intercambio de canales (Swap Tables 0..3)
+        // Build channel swap tables (Swap Tables 0..3)
         static const char chan_chars[4] = {'r', 'g', 'b', 'a'};
         bool ksel_all_zero = true;
         for (uint32_t v : key.ksel) {
@@ -4749,8 +4749,8 @@ private:
             }
         }
 
-        // Regla estándar del hardware GX de GameCube:
-        // El resultado de la última etapa TEV activa se vuelca a pantalla sin importar su registro destino
+        // Standard GameCube GX hardware rule:
+        // The output of the last active TEV stage is written to screen regardless of its destination register
         if (key.num_stages > 0) {
             const uint32_t last_st = key.num_stages - 1u;
             const uint32_t last_cc = key.tev_env[last_st * 2u + 0u];
@@ -5215,7 +5215,7 @@ private:
     std::array<float, 16> m_cached_u_tev_colors{};
     std::array<float, 16> m_cached_u_konst{};
 
-    // Estado de loteo dinámico (Dynamic Draw Call Batching) para reducir glDrawElementsBaseVertex
+    // Dynamic Draw Call Batching state to reduce glDrawElementsBaseVertex calls
     bool m_batch_active = false;
     size_t m_batch_vbo_base = 0;
     size_t m_batch_ebo_start = 0;
@@ -5239,7 +5239,7 @@ private:
     uint32_t m_batch_alpha_cmp16 = 0;
     uint32_t m_batch_const_alpha9 = 0;
 
-    // Loteo dinámico para pipeline DolphinVideo
+    // Dynamic batching for DolphinVideo pipeline
     bool m_dolphin_batch_active = false;
     size_t m_dolphin_batch_vbo_base = 0;
     size_t m_dolphin_batch_ebo_start = 0;
@@ -5352,7 +5352,7 @@ private:
 };
 
 // ============================================================================
-// Tabla de Sistema de Archivos de GameCube (FST / fst.bin)
+// GameCube File System Table (FST / fst.bin)
 // ============================================================================
 struct FstEntry {
     bool is_dir = false;
@@ -5449,7 +5449,7 @@ static void init_fst_tables(const u8* fst_data, size_t fst_size) {
 }
 
 // ============================================================================
-// Contexto del Runtime Gráfico & Hooks HLE (OS / DVD / VI / GX / MGSO)
+// Graphics Runtime Context & HLE Hooks (OS / DVD / VI / GX / MGSO)
 // ============================================================================
 struct GfxRuntimeContext {
     ModuleCallFn module_call = nullptr;
@@ -5467,7 +5467,7 @@ struct GfxRuntimeContext {
     bool in_gx_init = false;
     u32 gx_trace_count = 0;
 
-    // Grabación de Display Lists (GXBeginDisplayList / GXEndDisplayList para Ordering Table de mgso.rel)
+    // Display List recording (GXBeginDisplayList / GXEndDisplayList for mgso.rel Ordering Table)
     bool dl_active = false;
     u32 dl_fifo_obj = 0;
     u32 dl_base_addr = 0;
@@ -5483,7 +5483,7 @@ struct GfxRuntimeContext {
     bool in_audio_cleanup = false;
     bool window_closed = false;
 
-    // QoL: Relación de aspecto, pantalla completa, VSync y limitador de fotogramas
+    // QoL: Aspect ratio, fullscreen, VSync, and frame rate limiter
     AspectRatioMode aspect_mode = AspectRatioMode::Original_4_3;
     bool vsync_enabled = true;
     bool fps_limiter_enabled = true;
@@ -5703,7 +5703,7 @@ static LRESULT CALLBACK Ggsea4WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
 }
 
 #if defined(_WIN32)
-// 2. Soporte dinámico para Gamepads XInput con Lectura y Vibración (Rumble)
+// 2. Dynamic support for XInput Gamepads with Polling and Rumble
 typedef DWORD(WINAPI* PFN_XInputGetState)(DWORD dwUserIndex, void* pState);
 typedef DWORD(WINAPI* PFN_XInputSetState)(DWORD dwUserIndex, void* pVibration);
 static HMODULE s_xinput = nullptr;
@@ -5765,18 +5765,18 @@ static void update_pad_input(GfxRuntimeContext* rctx) {
         return (GetAsyncKeyState(vk) & 0x8000) != 0;
     };
 
-    // 1. Mapeo Teclado PC -> GameCube Controller:
-    // START  : Enter / Return (VK_RETURN) -> EXCLUSIVAMENTE START (0x1000u)
-    // A      : Espacio (VK_SPACE) o 'Z' -> Confirmar / Disparar / Accion (0x0100u)
-    // B      : 'X' o Retroceso (VK_BACK) -> Cancelar / Agacharse / Golpe (0x0200u)
-    // X      : 'C' -> Arrastrarse / Camara 1ra persona (0x0400u)
-    // Y      : 'V' -> Accion secundaria (0x0800u)
-    // Z      : 'E' -> Gatillo Z GameCube (0x0010u)
-    // L      : 'Q' -> Gatillo izquierdo analogo/digital (0x0040u)
-    // R      : 'R' -> Gatillo derecho analogo/digital (0x0020u)
+    // 1. PC Keyboard -> GameCube Controller mapping:
+    // START  : Enter / Return (VK_RETURN) -> EXCLUSIVELY START (0x1000u)
+    // A      : Space (VK_SPACE) or 'Z' -> Confirm / Fire / Action (0x0100u)
+    // B      : 'X' or Backspace (VK_BACK) -> Cancel / Crouch / Punch (0x0200u)
+    // X      : 'C' -> Crawl / First-person camera (0x0400u)
+    // Y      : 'V' -> Secondary action (0x0800u)
+    // Z      : 'E' -> GameCube Z trigger (0x0010u)
+    // L      : 'Q' -> Left analog/digital trigger (0x0040u)
+    // R      : 'R' -> Right analog/digital trigger (0x0020u)
     if (is_down(VK_RETURN)) btn |= 0x1000u; // START
-    if (is_down(VK_SPACE) || is_down('Z')) btn |= 0x0100u; // A (Confirmar)
-    if (is_down('X') || is_down(VK_BACK)) btn |= 0x0200u;  // B (Cancelar)
+    if (is_down(VK_SPACE) || is_down('Z')) btn |= 0x0100u; // A (Confirm)
+    if (is_down('X') || is_down(VK_BACK)) btn |= 0x0200u;  // B (Cancel)
     if (is_down('C')) btn |= 0x0400u; // X
     if (is_down('V')) btn |= 0x0800u; // Y
     if (is_down('E')) btn |= 0x0010u; // Z
@@ -5789,7 +5789,7 @@ static void update_pad_input(GfxRuntimeContext* rctx) {
     if (is_down(VK_DOWN))  btn |= 0x0004u;
     if (is_down(VK_UP))    btn |= 0x0008u;
 
-    // Main Control Stick (WASD independiente de D-Pad/Flechas)
+    // Main Control Stick (WASD independent of D-Pad/Arrow keys)
     if (is_down('A')) sx -= 120;
     if (is_down('D')) sx += 120;
     if (is_down('W')) sy += 120;
@@ -5801,8 +5801,8 @@ static void update_pad_input(GfxRuntimeContext* rctx) {
     if (is_down('I')) ssy += 120;
     if (is_down('K')) ssy -= 120;
 
-    // Pulsacion simulada de START y A tras superar los fotogramas del video
-    // NOTA: Solo se activa con el flag explicito --auto-skip para no interferir en partidas manuales/menu interactivo
+    // Simulated START and A presses after passing the video frames
+    // NOTE: Only active with explicit --auto-skip flag so it does not interfere with manual play/interactive menus
     if (rctx->auto_skip) {
         static uint64_t simulated_pad_ticks = 0;
         ++simulated_pad_ticks;
@@ -5811,19 +5811,19 @@ static void update_pad_input(GfxRuntimeContext* rctx) {
         const uint64_t menu_confirm_tick = 350;
 
         if (simulated_pad_ticks >= start_skip_tick && simulated_pad_ticks < title_confirm_tick) {
-            // Enviar START intermitente para saltar la intro/demo y llegar a r_title
+            // Send intermittent START to skip intro/demo and reach r_title
             if ((simulated_pad_ticks / 8) % 2 == 0) {
                 btn |= 0x1000u; // START
             }
         } else if (simulated_pad_ticks >= title_confirm_tick && simulated_pad_ticks < menu_confirm_tick) {
-            // Una vez en el menu de titulo (r_title), pulsar boton START / A (confirmar New Game)
+            // Once on the title menu (r_title), press START / A (confirm New Game)
             if ((simulated_pad_ticks / 10) % 2 == 0) {
                 btn |= 0x1100u; // START (0x1000) + A (0x0100)
             }
         } else if (simulated_pad_ticks >= menu_confirm_tick) {
             if (rctx->codec_active) {
-                // En Códec, esperar ~2.5s (150 frames) para observar el diálogo inicial, pulsar A brevemente cada 30 frames
-                // hasta +600 frames para avanzar a gameplay, y luego detener auto_skip para control manual de Snake.
+                // In Codec, wait ~2.5s (150 frames) to observe the opening dialogue, briefly press A every 30 frames
+                // up to +600 frames to advance to gameplay, then stop auto_skip for manual Snake control.
                 if (rctx->codec_start_frame > 0) {
                     if (rctx->frame_count >= rctx->codec_start_frame + 600u) {
                         std::printf("[AUTO-SKIP] Ventana de Codec completada (frame %u). Desactivando auto_skip para gameplay.\n",
@@ -5831,23 +5831,23 @@ static void update_pad_input(GfxRuntimeContext* rctx) {
                         rctx->auto_skip = false;
                     } else if ((rctx->frame_count >= rctx->codec_start_frame + 150u) &&
                                ((rctx->frame_count % 30u) < 2u)) {
-                        btn |= 0x0100u; // A (Avanzar diálogos)
+                        btn |= 0x0100u; // A (Advance dialogue)
                     }
                 }
             } else if (rctx->area01a_loaded) {
-                // En area01a previo al Códec, no enviar LEFT ni START (evita abrir menú de pausa CONTINUE/SKIP).
+                // In area01a prior to Codec, do not send LEFT or START (avoids opening CONTINUE/SKIP pause menu).
                 if ((rctx->frame_count / 15) % 2 == 0) {
-                    btn |= 0x0100u; // A suave
+                    btn |= 0x0100u; // Gentle A press
                 }
             } else {
-                // Confirmar posibles dialogos de Memory Card (seleccionar YES con Stick Izquierda + A/START)
+                // Confirm possible Memory Card dialogs (select YES with Stick Left + A/START)
                 const uint64_t phase = (simulated_pad_ticks / 15) % 4;
                 if (phase == 0 || phase == 1) {
-                    sx = -80; // Inclinacion hacia la izquierda para elegir [YES]
+                    sx = -80; // Tilt left to select [YES]
                     btn |= 0x0001u; // D-Pad LEFT
                 }
                 if (phase == 1 || phase == 2) {
-                    btn |= 0x0100u; // A (Confirmar)
+                    btn |= 0x0100u; // A (Confirm)
                 }
                 if (phase == 3) {
                     btn |= 0x1000u; // START
@@ -5856,13 +5856,13 @@ static void update_pad_input(GfxRuntimeContext* rctx) {
         }
     }
     if (rctx->test_move && rctx->frame_count >= 2550u && rctx->frame_count < 2750u) {
-        sy = 120; // Prueba QA de desplazamiento adelante en area01a
+        sy = 120; // QA test for forward movement in area01a
     }
     if (rctx->test_codec && rctx->frame_count >= 2450u && rctx->frame_count < 2456u) {
-        btn |= 0x1100u; // START + A (Codec en GameCube MGS:TTS) en area01a
+        btn |= 0x1100u; // START + A (Codec in GameCube MGS:TTS) in area01a
     }
 
-    // 2. Soporte nativo para Gamepads Xbox / DirectInput / Steam Input (Sondeo slots 0..3)
+    // 2. Native support for Xbox / DirectInput / Steam Input Gamepads (Polling slots 0..3)
     init_xinput();
     if (fn_xinput_get_state) {
         for (DWORD user_idx = 0; user_idx < 4; ++user_idx) {
@@ -5883,8 +5883,8 @@ static void update_pad_input(GfxRuntimeContext* rctx) {
             if (fn_xinput_get_state(user_idx, &xs) == 0) { // ERROR_SUCCESS
                 WORD xb = xs.Gamepad.wButtons;
                 if (xb & 0x0010u) btn |= 0x1000u; // START
-                if (xb & 0x1000u) btn |= 0x0100u; // A (Confirmar)
-                if (xb & 0x2000u) btn |= 0x0200u; // B (Cancelar)
+                if (xb & 0x1000u) btn |= 0x0100u; // A (Confirm)
+                if (xb & 0x2000u) btn |= 0x0200u; // B (Cancel)
                 if (xb & 0x4000u) btn |= 0x0400u; // X
                 if (xb & 0x8000u) btn |= 0x0800u; // Y
                 if (xb & 0x0200u) btn |= 0x0010u; // RB -> Z
@@ -5968,15 +5968,15 @@ static void sync_pad_to_guest_memory(CPUState* cpu, GfxRuntimeContext* rctx) {
 }
 
 // =========================================================================
-// Emulación de Memory Card Virtual (Ranura A / Memory Card 251 - 2 MB)
+// Virtual Memory Card Emulation (Slot A / Memory Card 251 - 2 MB)
 // =========================================================================
 class Ggsea4VirtualMemoryCard {
 public:
     static constexpr size_t CARD_SIZE = 2 * 1024 * 1024; // 2 MB (16 Mbits)
-    static constexpr size_t BLOCK_SIZE = 8192;           // 8 KB por bloque
+    static constexpr size_t BLOCK_SIZE = 8192;           // 8 KB per block
     static constexpr size_t NUM_BLOCKS = 256;
     static constexpr size_t SYSTEM_BLOCKS = 5;
-    static constexpr size_t FREE_BLOCKS = NUM_BLOCKS - SYSTEM_BLOCKS; // 251 bloques libres
+    static constexpr size_t FREE_BLOCKS = NUM_BLOCKS - SYSTEM_BLOCKS; // 251 free blocks
 
     std::vector<u8> data;
     std::string file_path = "memcardA.raw";
@@ -5996,13 +5996,13 @@ public:
     void format() {
         data.assign(CARD_SIZE, 0xFF);
 
-        // Bloque 0: Encabezado (Header) 0x0000..0x1FFF
+        // Block 0: Header 0x0000..0x1FFF
         for (int i = 0; i < 12; ++i) data[i] = static_cast<u8>(0x30 + i);
         u64 fmt_time = 0x0123456789ABCDEFull;
         for (int i = 0; i < 8; ++i) data[0x0C + i] = static_cast<u8>(fmt_time >> (56 - i * 8));
         data[0x20] = 0; data[0x21] = 0;       // Slot A
         data[0x22] = 0x00; data[0x23] = 0x10; // 16 Mbits (Memory Card 251)
-        data[0x24] = 0x00; data[0x25] = 0x00; // Codificación Occidental
+        data[0x24] = 0x00; data[0x25] = 0x00; // Western encoding
 
         auto [hcsum, hinv] = calculate_checksums(data.data(), 0x01FC);
         data[0x01FC] = static_cast<u8>(hcsum >> 8);
@@ -6010,7 +6010,7 @@ public:
         data[0x01FE] = static_cast<u8>(hinv >> 8);
         data[0x01FF] = static_cast<u8>(hinv & 0xFF);
 
-        // Bloques 1 y 2 (0x2000 y 0x4000): Directorio y respaldo
+        // Blocks 1 and 2 (0x2000 and 0x4000): Directory and backup
         for (size_t b = 1; b <= 2; ++b) {
             size_t base = b * BLOCK_SIZE;
             data[base + 0x1FFA] = 0;
@@ -6022,14 +6022,14 @@ public:
             data[base + 0x1FFF] = static_cast<u8>(dinv & 0xFF);
         }
 
-        // Bloques 3 y 4 (0x6000 y 0x8000): BAT (Block Allocation Table) y respaldo
+        // Blocks 3 and 4 (0x6000 and 0x8000): BAT (Block Allocation Table) and backup
         for (size_t b = 3; b <= 4; ++b) {
             size_t base = b * BLOCK_SIZE;
             std::memset(data.data() + base, 0, BLOCK_SIZE);
             data[base + 0x06] = 0x00;
-            data[base + 0x07] = 0xFB; // 251 bloques libres
+            data[base + 0x07] = 0xFB; // 251 free blocks
             data[base + 0x08] = 0x00;
-            data[base + 0x09] = 0x04; // Último bloque reservado = 4
+            data[base + 0x09] = 0x04; // Last reserved block = 4
             auto [bcsum, binv] = calculate_checksums(data.data() + base + 4, BLOCK_SIZE - 4);
             data[base + 0x00] = static_cast<u8>(bcsum >> 8);
             data[base + 0x01] = static_cast<u8>(bcsum & 0xFF);
@@ -6392,9 +6392,9 @@ static void present_frame(CPUState* cpu, GfxRuntimeContext* rctx) {
         elapsed_since_last_present = static_cast<double>(now_qpc.QuadPart - rctx->last_frame_qpc.QuadPart) / rctx->qpc_freq.QuadPart;
     }
 
-    // Si no hubo nuevo contenido gráfico y aún no ha transcurrido al menos ~14 ms (~60 Hz),
-    // se trata de una llamada redundante en el mismo fotograma (ej. 0x8004C2F0 y 0x7F3C7CC8).
-    // Omitir swap y espera para evitar doble retraso y judder de 15 FPS.
+    // If there was no new graphics content and at least ~14 ms (~60 Hz) has not elapsed yet,
+    // this is a redundant call in the same frame (e.g., 0x8004C2F0 and 0x7F3C7CC8).
+    // Skip swap and wait to avoid double delay and 15 FPS judder.
     if (!has_new_content && elapsed_since_last_present < 0.014) {
         return;
     }
@@ -6407,13 +6407,13 @@ static void present_frame(CPUState* cpu, GfxRuntimeContext* rctx) {
 
     rctx->last_vblank_time = std::chrono::steady_clock::now();
 
-    // Incrementar contador de barrido vertical VI (0x8027E22C) y sincronizar buffer de entrada MGS
+    // Increment VI vertical blank counter (0x8027E22C) and sync MGS input buffer
     u32 cur_retrace = mem_read32(cpu, 0x8027E22Cu) + 1u;
     mem_write32(cpu, 0x8027E22Cu, cur_retrace);
     mem_write32(cpu, 0x801E9388u + 48u, cur_retrace);
     mem_write32(cpu, 0x801E9388u + 52u, 0x80000000u);
 
-    // Reloj continuo de Audio Interface (48 kHz / 60 FPS = 800 muestras por fotograma)
+    // Continuous Audio Interface clock (48 kHz / 60 FPS = 800 samples per frame)
     s_mmio.ai_scnt += 800u;
 
     if (s_ai_dma_bytes_left > 0) {
@@ -6563,14 +6563,14 @@ static void present_frame(CPUState* cpu, GfxRuntimeContext* rctx) {
             rctx->render_device->MarkPresented();
         }
 
-        // Control de ritmo de fotogramas de alta precisión (GameCube VI NTSC: 59.940059 Hz)
+        // High-precision frame pacing control (GameCube VI NTSC: 59.940059 Hz)
         if (rctx->vsync_enabled) {
-            // Con VSync activo, SwapBuffers(hdc) ya sincroniza con el refresco del monitor por hardware.
-            // No aplicar retrasos adicionales por QPC para evitar saltos de fotograma por doble espera.
+            // With VSync active, SwapBuffers(hdc) already syncs to the monitor refresh in hardware.
+            // Do not apply extra QPC delays to avoid frame drops from double waiting.
             rctx->target_frame_qpc = post_swap_qpc;
             rctx->last_frame_qpc = post_swap_qpc;
         } else if (rctx->fps_limiter_enabled && rctx->qpc_freq.QuadPart > 0) {
-            // Pacing por software mediante acumulador QPC (evita drift y micro-saltos cuando VSync está desactivado)
+            // Software pacing via QPC accumulator (avoids drift and micro-stutter when VSync is disabled)
             const double target_frame_s = 1001.0 / 60000.0;
             const int64_t interval_ticks = static_cast<int64_t>(rctx->qpc_freq.QuadPart * target_frame_s);
 
@@ -6579,7 +6579,7 @@ static void present_frame(CPUState* cpu, GfxRuntimeContext* rctx) {
             }
             rctx->target_frame_qpc.QuadPart += interval_ticks;
 
-            // Si hubo un retraso extremo (> 2 fotogramas), resincronizar para evitar ráfagas
+            // If there was an extreme delay (> 2 frames), resync to avoid bursts
             if (post_swap_qpc.QuadPart > rctx->target_frame_qpc.QuadPart + interval_ticks * 2) {
                 rctx->target_frame_qpc = post_swap_qpc;
             }
@@ -6701,7 +6701,7 @@ static void host_instruction_fallback(CPUState* cpu, u32 raw, u32 cia) {
 static u64 host_mmio_read(CPUState* cpu, u32 ea, u8 size) {
     (void)cpu;
     (void)size;
-    // CP Status register (0xCC000000): reportar FIFO empty / idle para evitar bloqueos
+    // CP Status register (0xCC000000): report FIFO empty / idle to prevent hangs
     if (ea == 0xCC000000u) {
         return 0x00000004u | 0x00000008u;
     }
@@ -6713,8 +6713,8 @@ static u64 host_mmio_read(CPUState* cpu, u32 ea, u8 size) {
         return s_mmio.ai_vr;
     }
     if (ea == 0xCC006C08u) {
-        // Incrementar contador de muestras para que bucles de sincronizacion AI (loop_8002FFE4, loop_80030028)
-        // detecten avance de reloj de audio y salgan de inmediato
+        // Increment sample counter so AI sync loops (loop_8002FFE4, loop_80030028)
+        // detect audio clock progression and exit immediately
         s_mmio.ai_scnt += 32;
         return s_mmio.ai_scnt;
     }
@@ -6991,7 +6991,7 @@ static bool host_call_hook(CPUState* cpu, u32 address) {
         return false;
     }
 
-    // 1. Operaciones nativas ultrarrápidas de memoria (memset / __fill_mem / memcpy)
+    // 1. Ultra-fast native memory operations (memset / __fill_mem / memcpy)
     if (address == 0x800050B4u) {
         // memset(void* dst [r3], int val [r4], size_t n [r5])
         u32 dst = cpu->gpr[3];
@@ -7171,7 +7171,7 @@ static bool host_call_hook(CPUState* cpu, u32 address) {
             std::printf("[CAM-SETUP 0x7F3B191C] LR=0x%08X r3=0x%08X r4=0x%08X\n", cpu->lr, cpu->gpr[3], cpu->gpr[4]);
         }
     } else if (address == 0x80025B84u) {
-        // Diagnóstico: MTXTranspose (0x80025B84): r3=src, r4=dst
+        // Diagnostic: MTXTranspose (0x80025B84): r3=src, r4=dst
         static int s_mtx_cnt = 0;
         if (rctx->verbose_logging || ++s_mtx_cnt <= 5) {
             u32 src = cpu->gpr[3];
@@ -7204,7 +7204,7 @@ static bool host_call_hook(CPUState* cpu, u32 address) {
             }
         }
     } else if (address == 0x800468B8u) {
-        // Hook de diagnóstico: GXSetProjection(const float mtx[4][4] [r3], GXProjectionType type [r4])
+        // Diagnostic hook: GXSetProjection(const float mtx[4][4] [r3], GXProjectionType type [r4])
         u32 mtx_ptr = cpu->gpr[3];
         u32 ptype = cpu->gpr[4];
         float m[16];
@@ -7233,7 +7233,7 @@ static bool host_call_hook(CPUState* cpu, u32 address) {
             std::printf("  Row3: [%.4f, %.4f, %.4f, %.4f]\n", m[12], m[13], m[14], m[15]);
         }
     } else if (address == 0x80046A30u) {
-        // Hook de diagnóstico: GXLoadPosMtxImm(const float mtx[3][4] [r3], u32 id [r4])
+        // Diagnostic hook: GXLoadPosMtxImm(const float mtx[3][4] [r3], u32 id [r4])
         u32 mtx_ptr = cpu->gpr[3];
         u32 mid = cpu->gpr[4];
         static int s_gxmtx_cnt = 0;
@@ -7280,10 +7280,10 @@ static bool host_call_hook(CPUState* cpu, u32 address) {
                         cpu->gpr[3], cpu->lr, cpu->gpr[1]);
         }
     } else if (address == 0x80043744u) {
-        // GXCopyDisp(void* dest [r3], GXBool clear [r4]): registrar dirección XFB destino y dejar que escriba a WGPIPE
+        // GXCopyDisp(void* dest [r3], GXBool clear [r4]): record target XFB address and let it write to WGPIPE
         rctx->vi_xfb_address = cpu->gpr[3];
     } else if (address == 0x8004B8A8u) {
-        // Sincronización de GP FIFO post-GXCopyDisp: el procesador GX en RecompCore ya consumió WGPIPE síncronamente
+        // Post-GXCopyDisp GP FIFO synchronization: the GX processor in RecompCore already consumed WGPIPE synchronously
         if (rctx->gx_cp) {
             for (int i = 0; i < 8; ++i) {
                 rctx->gx_cp->Write(0, 4);
@@ -7292,13 +7292,13 @@ static bool host_call_hook(CPUState* cpu, u32 address) {
         cpu->pc = cpu->lr;
         return true;
     } else if (address == 0x8004C2F0u) {
-        // Espera de VBlank del motor gráfico de MGS -> presentar fotograma OpenGL
+        // MGS graphics engine VBlank wait -> present OpenGL frame
 #if defined(_WIN32)
         present_frame(cpu, rctx);
 #endif
         if (mem_read16(cpu, 0x801EC6F0u + 712u) == 1u ||
             (rctx->reached_mgso_loop && mem_read16(cpu, 0x7F4A3A90u + 712u) == 1u)) {
-            cpu->pc = 0x80023F34u; // OSYieldThread() si MovieThread o ArchiveThread está READY
+            cpu->pc = 0x80023F34u; // OSYieldThread() if MovieThread or ArchiveThread is READY
             return true;
         }
         cpu->pc = cpu->lr;
@@ -7308,7 +7308,7 @@ static bool host_call_hook(CPUState* cpu, u32 address) {
         return true;
     }
 
-    // 2. Hitos de ejecución y consola OSReport
+    // 2. Execution milestones and OSReport console
     if (address == 0x80005240u && !rctx->reached_start) {
         rctx->reached_start = true;
         std::printf("[BOOT] __start (0x80005240) alcanzado\n");
@@ -7379,7 +7379,7 @@ static bool host_call_hook(CPUState* cpu, u32 address) {
         return true;
     }
 
-    // 3. Sistema de archivos HLE DVD (lecturas sincronas y asincronas sobre input/extracted/files/)
+    // 3. HLE DVD filesystem (synchronous and asynchronous reads over input/extracted/files/)
     if (address == 0x8002768Cu) {
         // DVDOpen(const char* path [r3], DVDFileInfo* fileInfo [r4])
         std::string rel_path = read_guest_cstring(cpu, cpu->gpr[3]);
@@ -7819,24 +7819,24 @@ static bool host_call_hook(CPUState* cpu, u32 address) {
         }
         return false;
     } else if (address == 0x8002F96Cu) {
-        // AISetStreamPlayState / Stream state tracking (ejecutar nativo)
+        // AISetStreamPlayState / Stream state tracking (run natively)
         s_ai_stream_playing = (cpu->gpr[3] == 1u);
         return false;
     } else if (address == 0x8002FF70u) {
-        // __AISync (Dolphin SDK AI): sincronizacion/calibracion hardware de audio interface / DAC
+        // __AISync (Dolphin SDK AI): audio interface / DAC hardware sync/calibration
         cpu->pc = cpu->lr;
         return true;
     } else if (address == 0x800380C4u) {
-        // DSPInit (Dolphin SDK DSP): inicializacion de procesador DSP
+        // DSPInit (Dolphin SDK DSP): DSP processor initialization
         u32 r13 = cpu->gpr[13];
         mem_write32(cpu, r13 - 31240u, 1u); // __DSP_init_flag = 1
         std::printf("[MGS-INIT] DSPInit (0x800380C4) bypass OK! (__DSP_init_flag=1)\n");
         cpu->pc = cpu->lr;
         return true;
     } else if (address == 0x80038190u) {
-        // DSPAddTask (Dolphin SDK DSP): registrar tarea y marcarla como completada
+        // DSPAddTask (Dolphin SDK DSP): register task and mark it as completed
         u32 r13 = cpu->gpr[13];
-        mem_write32(cpu, r13 - 31356u, 1u); // flag de sincronizacion DSP listo
+        mem_write32(cpu, r13 - 31356u, 1u); // DSP sync ready flag
         u32 task = cpu->gpr[3];
         if (task) {
             mem_write32(cpu, task + 0u, 3u); // task->state = DSP_TASK_STATE_DONE
@@ -7846,9 +7846,9 @@ static bool host_call_hook(CPUState* cpu, u32 address) {
         return true;
     }
 
-    // 3B. Subsistema de Mandos GameCube (fn_80007204 Poller MGS + PADRead + SIGetType)
+    // 3B. GameCube Controller Subsystem (fn_80007204 MGS Poller + PADRead + SIGetType)
     if (address == 0x80007204u || address == 0x8002EB2Cu || address == 0x8002E9DCu) {
-        // u32 fn_80007204(PADStatus* status [r3]) o PADRead(PADStatus* status [r3])
+        // u32 fn_80007204(PADStatus* status [r3]) or PADRead(PADStatus* status [r3])
         ++rctx->pad_read_count;
         update_pad_input(rctx);
         u32 status_ptr = cpu->gpr[3];
@@ -7861,13 +7861,13 @@ static bool host_call_hook(CPUState* cpu, u32 address) {
         mem_write32(cpu, 0x801E9388u + 48u, cur_retrace); // last_retrace
         mem_write32(cpu, 0x801E9388u + 52u, 0x80000000u); // controller 0 mask
 
-        cpu->gpr[3] = 0x80000000u; // Mask de mando en puerto 0 conectado
+        cpu->gpr[3] = 0x80000000u; // Connected controller mask for port 0
         cpu->pc = cpu->lr;
         return true;
     } else if (address == 0x8001BE84u || address == 0x8001BA38u) {
         // u32 SIGetType(s32 chan [r3])
         u32 chan = cpu->gpr[3];
-        cpu->gpr[3] = (chan == 0) ? 0x09000000u : 0u; // SI_TYPE_GC (0x09000000) en puerto 0
+        cpu->gpr[3] = (chan == 0) ? 0x09000000u : 0u; // SI_TYPE_GC (0x09000000) on port 0
         cpu->pc = cpu->lr;
         return true;
     } else if (address == 0x8002F80Cu || address == 0x8002EE98u) {
@@ -7887,7 +7887,7 @@ static bool host_call_hook(CPUState* cpu, u32 address) {
         return true;
     }
 
-    // 3B2. Subsistema ARAM (AR / ARQ Dolphin SDK HLE)
+    // 3B2. ARAM Subsystem (AR / ARQ Dolphin SDK HLE)
     else if (address == 0x80030198u) {
         // u32 ARGetDMAStatus(void) -> 0 (idle / completed)
         cpu->gpr[3] = 0u;
@@ -7967,8 +7967,8 @@ static bool host_call_hook(CPUState* cpu, u32 address) {
             mem_write32(cpu, task + 0x18u, length);
             mem_write32(cpu, task + 0x1Cu, callback ? callback : 0x80031D94u);
 
-            // En el sound driver de MGS (fn_8002CEF4 y fn_8002D1A0), la estructura contenedora
-            // de la peticion esta en task - 0x3C, y el flag de finalizacion esta en +0x7C (+124 decimal).
+            // In the MGS sound driver (fn_8002CEF4 and fn_8002D1A0), the enclosing request
+            // structure is at task - 0x3C, and the completion flag is at +0x7C (+124 decimal).
             mem_write32(cpu, task - 0x3Cu + 0x7Cu, 1u);
             if (owner >= 0x80000000u && owner <= 0x81800000u) {
                 mem_write32(cpu, owner + 0x7Cu, 1u);
@@ -8002,7 +8002,7 @@ static bool host_call_hook(CPUState* cpu, u32 address) {
         return true;
     }
 
-    // 3C. Subsistema de Memory Card (HLE CARD & EXI - Ranura A respaldada en "memcardA.raw")
+    // 3C. Memory Card Subsystem (HLE CARD & EXI - Slot A backed by "memcardA.raw")
     if (address == 0x80039A10u) {
         // void CARDInit(void)
         std::printf("[CARD] CARDInit llamado (LR=0x%08X)\n", cpu->lr);
@@ -8015,7 +8015,7 @@ static bool host_call_hook(CPUState* cpu, u32 address) {
         u32 sectorSizePtr = cpu->gpr[5];
         if (chan == 0) {
             if (memSizePtr != 0) mem_write32(cpu, memSizePtr, 16u); // 16 Mbit (Memory Card 251)
-            if (sectorSizePtr != 0) mem_write32(cpu, sectorSizePtr, 8192u); // 8 KB por sector
+            if (sectorSizePtr != 0) mem_write32(cpu, sectorSizePtr, 8192u); // 8 KB per sector
             cpu->gpr[3] = 0u; // CARD_RESULT_READY (0)
             static u32 probe_cnt = 0;
             if (++probe_cnt <= 5 || probe_cnt % 60 == 0) {
@@ -8200,11 +8200,11 @@ static bool host_call_hook(CPUState* cpu, u32 address) {
         return true;
     }
 
-    // 3D. Subsistema EXI de bajo nivel (Soporte HLE para periféricos Ranura A)
+    // 3D. Low-level EXI Subsystem (HLE support for Slot A peripherals)
     if (address == 0x80018E84u || address == 0x80019078u) {
         // BOOL __EXIProbe / EXIProbe(s32 chan [r3])
         u32 chan = cpu->gpr[3];
-        cpu->gpr[3] = (chan == 0) ? 1u : 0u; // Slot A presente
+        cpu->gpr[3] = (chan == 0) ? 1u : 0u; // Slot A present
         cpu->pc = cpu->lr;
         return true;
     } else if (address == 0x80019CC4u) {
@@ -8239,14 +8239,14 @@ static bool host_call_hook(CPUState* cpu, u32 address) {
         return true;
     }
 
-    // 4. Transición main.dol -> shared/mgso.rel (pre-relocalizado en 0x7F008000)
+    // 4. Transition main.dol -> shared/mgso.rel (pre-relocated at 0x7F008000)
     if (address == 0x800066F8u) {
         std::string name = read_guest_cstring(cpu, cpu->gpr[3]);
         u32 load_addr = cpu->gpr[4];
         if (load_addr == 0x7F008000u) {
             std::printf("[REL] Enlace estatico activo para \"%s\" en 0x%08X (entry=0x7F0080EC)\n",
                         name.c_str(), load_addr);
-            // Escribir _prolog (0x7F0080EC) en offset +52 (0x34) y fixSize en +72 (0x48)
+            // Write _prolog (0x7F0080EC) at offset +52 (0x34) and fixSize at +72 (0x48)
             mem_write32(cpu, 0x7F008000u + 0x34u, 0x7F0080ECu);
             mem_write32(cpu, 0x7F008000u + 0x48u, 0x7F45CA40u);
             cpu->gpr[3] = 0x7F008000u;
@@ -8274,23 +8274,23 @@ static bool host_call_hook(CPUState* cpu, u32 address) {
         std::printf("[ACTOR] Actor_Add(bucket=%d, actor=0x%08X, name=0x%08X) LR=0x%08X\n",
                     cpu->gpr[3], cpu->gpr[4], cpu->gpr[5], cpu->lr);
     } else if (address == 0x7F3CC15Cu) {
-        // Inicialización y dimensionamiento seguro de Heap 2 en MEM2/VM (fn_1_3C3F94)
-        // El código original calculaba top=0x7F7CA000 y bottom=0x7F4AC800 (3.11 MB).
-        // Sin embargo, mgso.rel .bss se extiende hasta 0x7F500110, mientras que Heap 4 crece hacia arriba
-        // desde el mismo split (~0x2B2000 bytes). Situamos el split en 0x7FB40000:
-        //   - Heap 2 (hacia abajo): 0x7FB40000 -> 0x7F508000 (~6.52 MB libres sobre .bss)
-        //   - Heap 4 (hacia arriba): 0x7FB40000 -> 0x7FE00000+ (~4.86 MB antes de 0x80000000 MEM1)
+        // Initialization and safe sizing of Heap 2 in MEM2/VM (fn_1_3C3F94)
+        // The original code computed top=0x7F7CA000 and bottom=0x7F4AC800 (3.11 MB).
+        // However, mgso.rel .bss extends up to 0x7F500110, while Heap 4 grows upward
+        // from the same split (~0x2B2000 bytes). Place the split at 0x7FB40000:
+        //   - Heap 2 (downward): 0x7FB40000 -> 0x7F508000 (~6.52 MB free above .bss)
+        //   - Heap 4 (upward):   0x7FB40000 -> 0x7FE00000+ (~4.86 MB before 0x80000000 MEM1)
         u32 base = cpu->gpr[3]; // 0x7F000000
         mem_write32(cpu, 0x7F4FAA7Cu, base);              // [0x7F4FAA7C] = 0x7F000000 (MEM2 base)
         mem_write32(cpu, 0x7F4FAA6Cu, base + 0x8000u);     // [0x7F4FAA6C] = 0x7F008000 (mgso.rel base)
-        mem_write32(cpu, 0x7F4FAA78u, 0x7F508000u);        // [0x7F4FAA78] = 0x7F508000 (límite inferior seguro sobre .bss)
-        mem_write32(cpu, 0x7F4FAA74u, 0x7FB40000u);        // [0x7F4FAA74] = 0x7FB40000 (tope inicial de Heap 2 / base Heap 4)
-        mem_write32(cpu, 0x7F4FAA70u, 0x7FB40000u);        // [0x7F4FAA70] = 0x7FB40000 (tope máximo de Heap 2)
-        mem_write32(cpu, 0x7F4FEAACu, 0x7FB40000u);        // [0x7F4FEAAC] = 0x7FB40000 (puntero actual de Heap 2)
-        mem_write32(cpu, 0x7F4FEAA8u, 0x7FB40000u);        // [0x7F4FEAA8] = 0x7FB40000 (marca de Heap 2)
+        mem_write32(cpu, 0x7F4FAA78u, 0x7F508000u);        // [0x7F4FAA78] = 0x7F508000 (safe lower bound above .bss)
+        mem_write32(cpu, 0x7F4FAA74u, 0x7FB40000u);        // [0x7F4FAA74] = 0x7FB40000 (Heap 2 initial top / Heap 4 base)
+        mem_write32(cpu, 0x7F4FAA70u, 0x7FB40000u);        // [0x7F4FAA70] = 0x7FB40000 (Heap 2 max top)
+        mem_write32(cpu, 0x7F4FEAACu, 0x7FB40000u);        // [0x7F4FEAAC] = 0x7FB40000 (Heap 2 current pointer)
+        mem_write32(cpu, 0x7F4FEAA8u, 0x7FB40000u);        // [0x7F4FEAA8] = 0x7FB40000 (Heap 2 mark)
         std::printf("[HEAP2] Split seguro MEM2: top=0x7FB40000, bottom=0x7F508000 (Heap2=6.5 MB, Heap4=4.8 MB antes de MEM1)\n");
 
-        // Ejecutar epílogo de fn_1_3C3F94 (0x7F3CC080): restaurar r29-r31, lr y pop stack
+        // Execute epilogue of fn_1_3C3F94 (0x7F3CC080): restore r29-r31, lr, and pop stack
         u32 sp = cpu->gpr[1];
         cpu->gpr[29] = mem_read32(cpu, sp + 20u);
         cpu->gpr[30] = mem_read32(cpu, sp + 24u);
@@ -8309,7 +8309,7 @@ static bool host_call_hook(CPUState* cpu, u32 address) {
             std::printf("[HEAP2-ALLOC] req_size=%u (0x%X) cur_top=0x%08X -> nuevo=~0x%08X (LR=0x%08X)\n",
                         req_size, req_size, cur_top, cur_top - req_size, cpu->lr);
         }
-        return false; // permitir que la rutina nativa 0x7F3CC1EC asigne normalmente
+        return false; // allow native routine 0x7F3CC1EC to allocate normally
     }
     if (rctx->verbose_logging &&
         (address == 0x7F00A8E0u || address == 0x7F00A968u || address == 0x7F0FCF70u ||
@@ -8317,7 +8317,7 @@ static bool host_call_hook(CPUState* cpu, u32 address) {
          address == 0x8000D478u)) {
         std::printf("[MGS-STEP] call 0x%08X (LR=0x%08X SP=0x%08X r3=0x%08X)\n", address, cpu->lr, cpu->gpr[1], cpu->gpr[3]);
     }
-    // Hook de diagnostico de camara / llamada a GXLoadPosMtxImm
+    // Camera / GXLoadPosMtxImm call diagnostic hook
     if (rctx->verbose_logging && address == 0x80046A30u) {
         static int mtx_loads = 0;
         u32 mtx_ptr = cpu->gpr[3];
@@ -8442,7 +8442,7 @@ static bool host_call_hook(CPUState* cpu, u32 address) {
         static int f2d6764_calls = 0;
         ++f2d6764_calls;
         if (!rctx->auto_skip) {
-            // En modo interactivo: dejar que la rutina nativa compruebe el mando para permitir START o video completo
+            // In interactive mode: let the native routine check the controller to allow START or full video playback
             return false;
         }
 
@@ -8457,7 +8457,7 @@ static bool host_call_hook(CPUState* cpu, u32 address) {
         mem_write32(cpu, cpu->gpr[3] + 332u, 1u);
         return false;
     }
-    // Inspeccionar la creacion y setup de matrices en fn_1_2D57D8 y fn_1_2D58F8
+    // Inspect matrix creation and setup in fn_1_2D57D8 and fn_1_2D58F8
     if (address == 0x7F2DD7D8u || address == (0x7F008000u + 0x002D57D8u)) {
         static int f2d57d8_calls = 0;
         if (++f2d57d8_calls <= 10 || f2d57d8_calls % 100 == 0) {
@@ -8472,8 +8472,8 @@ static bool host_call_hook(CPUState* cpu, u32 address) {
                         f2d58f8_calls, address, cpu->gpr[3], cpu->gpr[4], cpu->lr, cpu->gpr[1]);
         }
     }
-    // Hook en el llamador de GXLoadPosMtxImm de la camara
-    // Hook en las funciones 0x7F2DD7EC y 0x7F2DD89C
+    // Hook on the camera GXLoadPosMtxImm caller
+    // Hook on functions 0x7F2DD7EC and 0x7F2DD89C
     if (address == 0x7F2DD7ECu) {
         static int f2dd7ec_calls = 0;
         if (++f2dd7ec_calls <= 10 || f2dd7ec_calls % 100 == 0) {
@@ -8549,7 +8549,7 @@ static bool host_call_hook(CPUState* cpu, u32 address) {
                         (cpu->gpr[4] ? mem_read32(cpu, cpu->gpr[4] + 8u) : 0u), cpu->gpr[0], cpu->lr);
         }
         if (same_r4_count > 500u) {
-            // Lista circular o elemento apuntándose a sí mismo: salir de la búsqueda
+            // Circular list or self-referencing element: exit search
             same_r4_count = 0u;
             cpu->gpr[4] = 0u;
             cpu->pc = 0x7F3C8F94u;
@@ -8557,8 +8557,8 @@ static bool host_call_hook(CPUState* cpu, u32 address) {
         }
     }
     if (address == 0x7F0FEAC4u) {
-        // Guard non-destructive para el escaneo de ring-buffer (0x7F0FEA64..0x7F0FEB50):
-        // solo romper si la cabecera muestra tamaño 0 (!= 255) o si se estanca >64 yields en el mismo frame/LR/pool.
+        // Non-destructive guard for ring-buffer scan (0x7F0FEA64..0x7F0FEB50):
+        // only break if the header shows size 0 (!= 255) or if stalled >64 yields in the same frame/LR/pool.
         static u32 s_last_r27 = 0u, s_last_lr = 0u, s_last_frame = 0u, s_yields = 0u;
         if (cpu->gpr[27] == s_last_r27 && cpu->lr == s_last_lr && rctx->frame_count == s_last_frame) {
             ++s_yields;
@@ -8760,8 +8760,8 @@ static bool host_call_hook(CPUState* cpu, u32 address) {
         return false;
     }
     if (address == 0x7F01893Cu) {
-        // DSPAddTask (0x80038190) es HLE sin consumo real de paquetes ADPCM: simular drenaje a tasa
-        // real de bitrate (~18.3 KB/s Codec mono 16kHz / ~36.6 KB/s estéréo) para no vaciar el ringbuffer al instante.
+        // DSPAddTask (0x80038190) is HLE without real ADPCM packet consumption: simulate drain at
+        // real bitrate (~18.3 KB/s Codec mono 16kHz / ~36.6 KB/s stereo) so the ring buffer is not emptied instantly.
         const u32 actor = cpu->gpr[3];
         if (actor == 0u) {
             return false;
@@ -9300,7 +9300,7 @@ static bool host_call_hook(CPUState* cpu, u32 address) {
     }
 
     // Cache control range functions (DCFlushRange, DCStoreRange, DCInvalidateRange, ICInvalidateRange)
-    // No-op inmediato en arquitectura x86_64 coherente para evitar millones de iteraciones de dcbf/icbi
+    // Immediate no-op on coherent x86_64 architecture to avoid millions of dcbf/icbi iterations
     if (address == 0x8001DA20u && (cpu->lr == 0x8004C928u || cpu->lr == 0x8004C9B4u)) {
         const u32 dst_tex = (cpu->lr == 0x8004C928u) ? cpu->gpr[30] : cpu->gpr[28];
         const u32 rmode_ptr = mem_read32(cpu, cpu->gpr[31] + 8u);
@@ -9322,7 +9322,7 @@ static bool host_call_hook(CPUState* cpu, u32 address) {
         return true;
     }
 
-    // 5. Sincronización de Video Interface (VI) y GX
+    // 5. Video Interface (VI) and GX synchronization
     if (address == 0x8002C800u) {
         // VISetNextFrameBuffer(void* fb [r3])
         rctx->vi_xfb_address = cpu->gpr[3];
@@ -9335,8 +9335,8 @@ static bool host_call_hook(CPUState* cpu, u32 address) {
             static int s_loop_count = 0;
             s_loop_count++;
             if (cpu->gpr[31] >= 10u) {
-                // Desbloquea la espera del thread asíncrono de audio/streaming (0x8027DD98)
-                // y limpia slots de solicitud de audio pendientes de cierre para completar la transición a in-game.
+                // Unblock the async audio/streaming thread wait (0x8027DD98)
+                // and clear pending audio request slots to complete the transition to in-game.
                 mem_write32(cpu, 0x8027DD98u, 0u);
                 for (u32 i = 0; i < 8u; ++i) {
                     const u32 slot_ea = 0x8021A4B0u + i * 268u;
@@ -9369,7 +9369,7 @@ static bool host_call_hook(CPUState* cpu, u32 address) {
 #endif
         if (mem_read16(cpu, 0x801EC6F0u + 712u) == 1u ||
             (rctx->reached_mgso_loop && mem_read16(cpu, 0x7F4A3A90u + 712u) == 1u)) {
-            cpu->pc = 0x80023F34u; // OSYieldThread() si MovieThread o ArchiveThread está READY
+            cpu->pc = 0x80023F34u; // OSYieldThread() if MovieThread or ArchiveThread is READY
             return true;
         }
         cpu->pc = cpu->lr;
@@ -9451,7 +9451,7 @@ static bool host_call_hook(CPUState* cpu, u32 address) {
         return true;
     }
 
-    // Si estamos dentro del bucle principal de fotogramas de MGS (0x7F3C7CC8), presentar fotograma al terminar cada tick
+    // If we are inside the MGS main frame loop (0x7F3C7CC8), present frame at the end of each tick
     if (address == 0x7F3C7CC8u) {
         static u64 s_last_draws = 0;
         static int s_stall_ticks = 0;
@@ -9608,7 +9608,7 @@ int main(int argc, char** argv) {
                 mod->abi_version, mod->cpu_state_size,
                 mod->variants ? mod->variants[0].name : "none");
 
-    // 1. Inicializar subsistema gráfico ModernGekko (AddressSpace + GxStateBackend + GxCommandProcessor + DolphinShaderCompiler)
+    // 1. Initialize ModernGekko graphics subsystem (AddressSpace + GxStateBackend + GxCommandProcessor + DolphinShaderCompiler)
     moderngekko::AddressSpace address_space(GC_MAIN_RAM_SIZE, GC_VM_SIZE);
     moderngekko::GxStateBackend gx_state(address_space);
     Ggsea4RenderDevice render_device(address_space);
@@ -9622,7 +9622,7 @@ int main(int argc, char** argv) {
     }
     cpu_reset(&cpu);
 
-    // Compartir zero-copy MEM1 (24 MB) y VM/MEM2 (16 MB, mgso.rel) entre CPUState y ModernGekko::AddressSpace
+    // Zero-copy share MEM1 (24 MB) and VM/MEM2 (16 MB, mgso.rel) between CPUState and ModernGekko::AddressSpace
     u8* orig_cpu_ram = cpu.ram;
     u8* orig_cpu_mem2 = cpu.mem2;
     cpu.ram = address_space.GetMem1().data();
@@ -9666,7 +9666,7 @@ int main(int argc, char** argv) {
     }
 
 #if defined(_WIN32)
-    // 2. Crear ventana Win32 + contexto OpenGL
+    // 2. Create Win32 window + OpenGL context
     WNDCLASSEXA wc = {};
     wc.cbSize = sizeof(wc);
     wc.style = CS_OWNDC | CS_HREDRAW | CS_VREDRAW;
@@ -9745,8 +9745,8 @@ int main(int argc, char** argv) {
     }
     if (rctx.host_refresh_rate <= 0) rctx.host_refresh_rate = 60;
 
-    // Por defecto desactivar wglSwapInterval=1 porque bajo DWM en Windows cuantiza frames a 20/30 FPS incluso a 60 Hz;
-    // el limitador QPC acumulador de 59.94 Hz mantiene pacing exacto sin --novsync (VSync HW sigue disponible con --vsync o F8).
+    // Disable wglSwapInterval=1 by default because under Windows DWM it quantizes frames to 20/30 FPS even at 60 Hz;
+    // the 59.94 Hz QPC accumulator limiter maintains exact pacing without --novsync (HW VSync remains available via --vsync or F8).
     rctx.vsync_enabled = cli_vsync && !cli_novsync && !cli_turbo;
 
     wglSwapIntervalEXT = reinterpret_cast<PFNWGLSWAPINTERVALEXTPROC>(wglGetProcAddress("wglSwapIntervalEXT"));
@@ -9759,7 +9759,7 @@ int main(int argc, char** argv) {
                     rctx.vsync_enabled ? "Hardware VI" : "QPC Acumulador 59.94 Hz");
     }
 
-    // Inicializar temporizador de alta resolucion para limitador de fotogramas (59.940059 Hz NTSC)
+    // Initialize high-resolution timer for frame rate limiter (59.940059 Hz NTSC)
     timeBeginPeriod(1);
     QueryPerformanceFrequency(&rctx.qpc_freq);
     QueryPerformanceCounter(&rctx.last_frame_qpc);
@@ -9771,7 +9771,7 @@ int main(int argc, char** argv) {
     render_device.InitGlResources();
 #endif
 
-    // 3. Prueba de humo del compilador de shaders Dolphin (ModernGekko::DolphinVideo) + GX Pipeline
+    // 3. Smoke test of Dolphin shader compiler (ModernGekko::DolphinVideo) + GX Pipeline
     {
         std::array<std::uint32_t, 256> cp_test{};
         std::array<std::uint32_t, 0x1058> xf_test{};
@@ -9790,7 +9790,7 @@ int main(int argc, char** argv) {
                     static_cast<unsigned long long>(boot_shaders.pixel_uid));
     }
 
-    // 4. Inicializar OS Globals de GameCube (0x80000000..0x800030FF)
+    // 4. Initialize GameCube OS Globals (0x80000000..0x800030FF)
     load_file_to_guest(&cpu, "input/extracted/sys/boot.bin", 0x80000000u);
     u32 bi2_addr = 0x817EE000u;
     load_file_to_guest(&cpu, "input/extracted/sys/bi2.bin", bi2_addr);
@@ -9815,7 +9815,7 @@ int main(int argc, char** argv) {
     mem_write32(&cpu, 0x800000FCu, 486000000u);
     mem_write32(&cpu, 0x800000CCu, 0u); // TV Mode = VI_NTSC
 
-    // 5. Cargar main.dol en MEM1
+    // 5. Load main.dol into MEM1
     DOLFile dol;
     if (!dol_load(&dol, dol_path)) {
         std::fprintf(stderr, "[ERROR] No se pudo cargar %s\n", dol_path);
@@ -9836,7 +9836,7 @@ int main(int argc, char** argv) {
     }
     std::printf("[OK] main.dol cargado en MEM1 (entry=0x%08X)\n", dol.header.entry_point);
 
-    // 6. Cargar y relocalizar shared/mgso.rel en 0x7F008000 (VM)
+    // 6. Load and relocate shared/mgso.rel at 0x7F008000 (VM)
     RELFile rel;
     if (!rel_load(&rel, rel_path, 0x7F008000u)) {
         std::fprintf(stderr, "[ERROR] No se pudo cargar/relocalizar %s\n", rel_path);
@@ -9856,7 +9856,7 @@ int main(int argc, char** argv) {
     std::printf("[OK] mgso.rel cargado y relocalizado en VM 0x7F008000 (entry=0x%08X, relocs=%u)\n",
                 rel.entry_point, rel.relocation_count);
 
-    // 7. Ejecutar bucle principal del juego + presentación OpenGL
+    // 7. Run game main loop + OpenGL presentation
     g_active_cpu = &cpu;
     cpu.pc = dol.header.entry_point; // 0x80005240 (__start)
     cpu.gpr[1] = 0x8028EB38u;        // _stack_addr
@@ -9948,7 +9948,7 @@ int main(int argc, char** argv) {
         }
 
         if (!mod_run_blocks(&cpu, 256) && cpu.exception == 0) {
-            // Si llegamos a una dirección fuera de tabla o callback nulo, retornar al caller (LR)
+            // If we reach an out-of-table address or null callback, return to caller (LR)
             if (cpu.lr != 0 && cpu.pc != cpu.lr) {
                 cpu.pc = cpu.lr;
                 continue;

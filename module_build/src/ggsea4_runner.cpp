@@ -46,7 +46,7 @@ static u32 host_spr_read(CPUState* cpu, u16 spr, u32 cia) {
     (void)cia;
     auto* rctx = static_cast<RunnerContext*>(cpu->external_user_data);
     if (!rctx || spr >= 1024) return 0;
-    // L2CR (1017): asegurar que L2_INIT (bit 31 -> 0x1 en IBM bit numbering = 0x00000001) nunca quede bloqueado en bucle de polling
+    // L2CR (1017): ensure L2_INIT (bit 31 -> 0x1 in IBM bit numbering = 0x00000001) never stays stuck in a polling loop
     if (spr == 1017) {
         return rctx->spr_regs[spr] & ~0x00000001u;
     }
@@ -93,7 +93,7 @@ static bool host_call_hook(CPUState* cpu, u32 address) {
     auto* rctx = static_cast<RunnerContext*>(cpu->external_user_data);
     if (!rctx) return false;
 
-    // 1. Trazar hitos clave de arranque
+    // 1. Trace key boot milestones
     if (address == 0x80005240u && rctx->trace_count == 0) {
         std::printf("[TRACE] Entry point alcanzado: __start (0x80005240)\n");
         rctx->trace_count++;
@@ -112,7 +112,7 @@ static bool host_call_hook(CPUState* cpu, u32 address) {
         cpu->pc = cpu->lr;
         return true;
     } else if (address == 0x8001D778u || address == 0x8001D934u) {
-        // __OSInitAudioSystem / __OSStopAudioSystem (evitar espera infinita de DMA DSP hardware)
+        // __OSInitAudioSystem / __OSStopAudioSystem (avoid infinite hardware DSP DMA wait)
         cpu->pc = cpu->lr;
         return true;
     } else if (address == 0x8002148Cu && !rctx->reached_oslink) {
@@ -190,12 +190,12 @@ int main(int argc, char** argv) {
     cpu.cache_control = host_cache_control;
     cpu.instruction_fallback = host_instruction_fallback;
 
-    // 1. Inicializar OS Globals de GameCube en 0x80000000..0x800030FF
+    // 1. Initialize GameCube OS Globals at 0x80000000..0x800030FF
     load_file_to_guest(&cpu, "input/extracted/sys/boot.bin", 0x80000000u);
     u32 bi2_addr = 0x817EE000u;
     load_file_to_guest(&cpu, "input/extracted/sys/bi2.bin", bi2_addr);
-    mem_write32(&cpu, bi2_addr + 0x08u, 0u); // Sin tabla argv en BI2
-    mem_write32(&cpu, bi2_addr + 0x0Cu, 0u); // Sin modo debug TRK forzado
+    mem_write32(&cpu, bi2_addr + 0x08u, 0u); // No argv table in BI2
+    mem_write32(&cpu, bi2_addr + 0x0Cu, 0u); // No forced TRK debug mode
     u32 fst_size = 0;
     u32 fst_addr = 0x817F0000u;
     if (load_file_to_guest(&cpu, "input/extracted/sys/fst.bin", fst_addr, &fst_size)) {
@@ -211,7 +211,7 @@ int main(int argc, char** argv) {
     mem_write32(&cpu, 0x800000F8u, 162000000u);       // Bus Clock (162 MHz)
     mem_write32(&cpu, 0x800000FCu, 486000000u);       // CPU Clock (486 MHz)
 
-    // 2. Cargar secciones de main.dol en MEM1
+    // 2. Load main.dol sections into MEM1
     DOLFile dol;
     if (!dol_load(&dol, dol_path)) {
         std::fprintf(stderr, "[ERROR] No se pudo cargar %s\n", dol_path);
@@ -230,7 +230,7 @@ int main(int argc, char** argv) {
     }
     std::printf("[OK] main.dol cargado en MEM1 (entry=0x%08X)\n", dol.header.entry_point);
 
-    // 3. Pre-cargar y relocalizar shared/mgso.rel en 0x7F008000 (VM Region)
+    // 3. Pre-load and relocate shared/mgso.rel at 0x7F008000 (VM Region)
     RELFile rel;
     if (!rel_load(&rel, rel_path, 0x7F008000u)) {
         std::fprintf(stderr, "[ERROR] No se pudo cargar/relocalizar %s en 0x7F008000\n", rel_path);
@@ -247,7 +247,7 @@ int main(int argc, char** argv) {
     std::printf("[OK] mgso.rel cargado y relocalizado en VM 0x7F008000 (entry=0x%08X, relocs=%u)\n",
                 rel.entry_point, rel.relocation_count);
 
-    // 4. Prueba 1: Ejecutar secuencia de inicialización de main.dol (__start -> __init_registers -> __init_data)
+    // 4. Test 1: Execute main.dol initialization sequence (__start -> __init_registers -> __init_data)
     cpu.pc = dol.header.entry_point; // 0x80005240 (__start)
     cpu.gpr[1] = 0x8028EB38u;        // _stack_addr
     cpu.gpr[2] = 0x802864A0u;        // _SDA2_BASE_
@@ -266,7 +266,7 @@ int main(int argc, char** argv) {
             break;
         }
         if (cpu.exception == PPC_EXC_SYSTEM_CALL) {
-            // Emular __OSSystemCallVector (0x80000C00): sync; isync; rfi
+            // Emulate __OSSystemCallVector (0x80000C00): sync; isync; rfi
             cpu.exception = 0;
             cpu.msr = cpu.srr1;
             cpu.pc = cpu.srr0;
@@ -281,11 +281,11 @@ int main(int argc, char** argv) {
     std::printf("         Estado post-init: SP(r1)=0x%08X | r2=0x%08X | r13=0x%08X | PC=0x%08X\n",
                 cpu.gpr[1], cpu.gpr[2], cpu.gpr[13], cpu.pc);
 
-    // 5. Prueba 2: Invocar directamente el _prolog de mgso.rel (0x7F0080EC) en la región VM 0x7F008000
+    // 5. Test 2: Directly invoke mgso.rel _prolog (0x7F0080EC) in VM region 0x7F008000
     std::printf("[TEST 2] Ejecutando mgso.rel::_prolog (0x7F0080EC) en region VM...\n");
     cpu.exception = 0;
     cpu.pc = rel.entry_point;        // 0x7F0080EC (_prolog)
-    cpu.lr = 0x80006804u;            // Retorno a fn_800067E0 en main.dol
+    cpu.lr = 0x80006804u;            // Return to fn_800067E0 in main.dol
     for (u32 step = 0; step < 32; ++step) {
         if (!mod_call(&cpu, cpu.pc)) {
             break;

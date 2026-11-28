@@ -11,7 +11,7 @@ with open(path, 'rb') as f:
 bytes_per_px = bpp // 8
 row_padded = (width * bytes_per_px + 3) & ~3
 
-# Crear un mapa ascii de 80x24 bloques
+# Create an 80x24 block ASCII map
 ascii_w = 80
 ascii_h = 24
 step_x = width // ascii_w
@@ -22,11 +22,11 @@ print("--- VISTA PREVIA ASCII DE LA PANTALLA (960x720) ---")
 for ay in range(ascii_h):
     line = ""
     for ax in range(ascii_w):
-        # Muestrear el bloque
+        # Sample the block
         lum_sum = 0
         samples = 0
         for sy in range(0, step_y, 4):
-            py = (ascii_h - 1 - ay) * step_y + sy # Invertido porque BMP es bottom-up
+            py = (ascii_h - 1 - ay) * step_y + sy # Flipped because BMP is bottom-up
             row = raw_pixels[py * row_padded : py * row_padded + width * bytes_per_px]
             for sx in range(0, step_x, 4):
                 px = ax * step_x + sx
